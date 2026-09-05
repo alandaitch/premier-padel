@@ -31,6 +31,7 @@ yarn-error.log*
 
 # deployment and generated files
 .vercel
+/.openai/
 next-env.d.ts
 /dist/
 /.wrangler/
