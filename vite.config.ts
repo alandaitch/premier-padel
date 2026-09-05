@@ -12,7 +12,8 @@ type HostingConfig = { d1?: string | null; r2?: string | null };
 // The OpenAI Sites binding file belongs to a local deployment, so it is not
 // committed. A clean clone runs without bindings and can still build the game.
 const hostingConfigPath = new URL('./.openai/hosting.json', import.meta.url);
-const hostingConfig: HostingConfig = existsSync(hostingConfigPath)
+const hasLocalHostingConfig = existsSync(hostingConfigPath);
+const hostingConfig: HostingConfig = hasLocalHostingConfig
   ? JSON.parse(readFileSync(hostingConfigPath, 'utf8'))
   : {};
 const { d1, r2 } = hostingConfig;
@@ -59,7 +60,9 @@ export default defineConfig(async () => {
       : undefined,
     plugins: [
       vinext(),
-      sites(),
+      // Sites copies the local binding file during its build. Keep that plugin
+      // only for the local hosted project, never for a clean public checkout.
+      ...(hasLocalHostingConfig ? [sites()] : []),
       cloudflare({
         viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },
         config: localBindingConfig,
