@@ -2334,3 +2334,268 @@ div:has(> [data-slot='select-content'].padel-select) {
     animation: none;
   }
 }
+
+/* V6: three visible shot families; detailed mapping stays in settings. */
+.simple-shot-families {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px 8px;
+}
+.simple-shot-families > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 7px 12px;
+  text-align: left;
+  border: 1px solid #ffffff20;
+  background: #ffffff06;
+  border-radius: 4px;
+}
+.simple-shot-families > button.active {
+  border-color: var(--lime);
+  background: #c7f46510;
+}
+.simple-shot-families kbd {
+  font-size: 15px;
+  min-width: 27px;
+  text-align: center;
+  color: var(--lime);
+}
+.simple-shot-families b {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.simple-shot-families small {
+  display: block;
+  font-size: 10px;
+  color: #91a9b5;
+  margin-top: 2px;
+}
+.combo-shortcuts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 9px;
+}
+.combo-shortcuts button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #a5bac4;
+  font-size: 10px;
+}
+.combo-shortcuts .advanced-shots-toggle {
+  margin-left: auto;
+  color: var(--lime);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.shots.advanced-shot-grid {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: #0c202af5;
+  border: 1px solid #b6d4e438;
+  border-radius: 5px;
+  padding: 10px;
+  box-shadow: 0 6px 40px #0008;
+}
+.controls-settings {
+  border-bottom: 1px solid #ffffff17;
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+}
+.control-scheme-summary,
+.binding-note {
+  font-size: 11px;
+  line-height: 1.6;
+  color: #9cb4c0;
+  margin: 9px 0;
+}
+.gamepad-status {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+  background: #ffffff05;
+  border: 1px solid #ffffff15;
+  padding: 10px;
+  border-radius: 5px;
+}
+.gamepad-status svg {
+  color: #9cb4c0;
+  flex-shrink: 0;
+}
+.gamepad-status.connected svg {
+  color: var(--lime);
+}
+.gamepad-status b {
+  display: block;
+  font-size: 12px;
+  color: #dbeaf0;
+}
+.gamepad-status small {
+  display: block;
+  max-width: 340px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  color: #93aebc;
+  margin-top: 3px;
+}
+.mapping-details {
+  margin-top: 13px;
+}
+.mapping-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--lime);
+  padding: 5px 0;
+}
+.mapping-tabs {
+  display: flex;
+  gap: 5px;
+  margin: 12px 0;
+}
+.mapping-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #ffffff25;
+  border-radius: 4px;
+  padding: 7px 11px;
+  font-size: 12px;
+}
+.mapping-tabs button[aria-pressed='true'] {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+.mapping-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.mapping-grid button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid #ffffff20;
+  border-radius: 3px;
+  text-align: left;
+  font-size: 11px;
+}
+.mapping-grid button:hover,
+.mapping-grid button.listening {
+  border-color: var(--lime);
+  background: #c7f4650a;
+}
+.mapping-grid button.listening kbd {
+  color: var(--lime);
+}
+.binding-capture {
+  background: #c7f46512;
+  border-left: 2px solid var(--lime);
+  padding: 9px;
+  color: #dceec2;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 10px;
+}
+.binding-capture button {
+  text-decoration: underline;
+  margin-left: 8px;
+}
+.gamepad-live {
+  font-size: 10px;
+  color: #93aebc;
+  line-height: 1.6;
+}
+.reset-bindings {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  margin: 14px 0;
+  color: #b4cad4;
+}
+.vibration-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #aac1cc;
+  margin-top: 14px;
+  line-height: 1.5;
+}
+.vibration-toggle input {
+  accent-color: var(--lime);
+}
+.exterior-options button {
+  padding-inline: 6px;
+}
+@media (max-width: 700px) {
+  .simple-shot-families {
+    gap: 4px;
+    padding-inline: 5px;
+  }
+  .simple-shot-families > button {
+    min-height: 42px;
+    padding: 5px 6px;
+    gap: 6px;
+  }
+  .simple-shot-families b {
+    font-size: 11px;
+  }
+  .simple-shot-families small {
+    font-size: 8px;
+  }
+  .simple-shot-families kbd {
+    font-size: 12px;
+    min-width: 22px;
+    padding: 2px;
+  }
+  .combo-shortcuts {
+    gap: 6px;
+    padding-inline: 5px;
+    flex-wrap: wrap;
+  }
+  .combo-shortcuts button {
+    font-size: 9px;
+    gap: 3px;
+  }
+  .combo-shortcuts kbd {
+    padding: 1px 3px;
+    font-size: 8px;
+  }
+  .mapping-grid {
+    grid-template-columns: 1fr;
+  }
+  .smash-options {
+    gap: 2px;
+  }
+  .smash-options button {
+    font-size: 9px;
+    padding: 5px;
+  }
+}
+
+.binding-capture,
+.binding-message {
+  display: block;
+}
+
+/* V6: brief match scenes leave the players and coaches visible. */
+.match-scene { position: absolute; z-index: 25; bottom: 34px; left: 50%; transform: translateX(-50%); width: min(690px, calc(100% - 32px)); padding: 18px 24px; background: linear-gradient(120deg, #091a29f5, #0e2530eb); border: 1px solid #7ed7bd55; border-radius: 12px; box-shadow: 0 12px 50px #0007; color: #fff; text-align: center; }
+.match-scene small { color: #abe6cf; font-size: 10px; font-weight: 800; letter-spacing: 2px; }
+.match-scene p { font-size: clamp(14px, 2vw, 19px); line-height: 1.45; margin: 10px 0 14px; }
+.match-scene button { display: inline-flex; align-items: center; gap: 10px; border: 1px solid #ffffff35; border-radius: 6px; padding: 8px 15px; background: #ffffff0d; font-size: 12px; font-weight: 700; }
+.match-scene kbd { padding: 2px 5px; border: 1px solid #ffffff40; border-radius: 3px; font-size: 10px; color: #abe6cf; }
+@media (max-height: 600px) { .match-scene { bottom: 12px; padding: 10px 16px; } .match-scene p { margin: 6px 0; } }

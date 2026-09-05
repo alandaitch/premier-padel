@@ -39,3 +39,23 @@ export function keyboardShot(code: string, state: GameState): Shot | null {
     )[code] ?? null
   );
 }
+
+/** Families share preparation and choose the appropriate contact from the ball. */
+export function familyShot(
+  intent: import('./control-mapping').ComboIntent,
+  state: GameState,
+): Shot {
+  const player = state.players[state.controlled];
+  if (intent === 'lob') return 'globo';
+  if (intent === 'touch')
+    return Math.abs(player.z) > 5.5 ? 'chiquita' : 'dejada';
+  if (intent === 'together') return state.ball.y > 1.6 ? 'vibora' : 'volea';
+  if (intent === 'control') {
+    if (state.wallBounces > 0 && state.ball.y > 1.35) return 'bajada';
+    if (state.ball.y > 1.6) return 'bandeja';
+    return state.ballBounce === 0 && Math.abs(player.z) < 5.6
+      ? 'volea'
+      : 'chiquita';
+  }
+  return keyboardShot('KeyJ', state) ?? 'plano';
+}

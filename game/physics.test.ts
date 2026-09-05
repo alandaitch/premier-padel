@@ -16,6 +16,7 @@ import {
   kineticEnergy,
   COURT,
   type TimingQuality,
+  type ExteriorReturn,
 } from './physics';
 const idle: Input = {
   moveX: 0,
@@ -41,7 +42,9 @@ interface Harness {
     aim: number,
     smash?: Smash,
     quality?: TimingQuality,
+    exteriorReturn?: ExteriorReturn,
   ): void;
+  finishPoint(winner: Team, reason: string, isWinner: boolean): void;
   movePlayer(p: Player, x: number, z: number, speed: number, dt: number): void;
   routePlayer(
     p: Player,
@@ -61,6 +64,234 @@ interface Harness {
   contactTime: number;
 }
 const internal = (m: PadelMatch) => m as unknown as Harness;
+
+const v6Profiles = [
+  { height: 1.79, handedness: 'right' as const, playingSide: 'left' as const },
+  { height: 1.9, handedness: 'left' as const, playingSide: 'right' as const },
+  { height: 1.86, handedness: 'right' as const, playingSide: 'left' as const },
+  { height: 1.7, handedness: 'right' as const, playingSide: 'right' as const },
+];
+
+void test('powerful natural por3 can land far beyond the old retrieval rectangle', () => {
+  const match = new PadelMatch({
+    training: true,
+    drill: 'remate',
+    difficulty: 'dificil',
+    playerProfiles: v6Profiles,
+  });
+  const s = match.getState();
+  let fired = false,
+    exited = false,
+    retrieved = false;
+  for (let i = 0; i < 1200 && s.phase !== 'point'; i++) {
+    const hit = !fired && s.canHit;
+    if (hit) fired = true;
+    match.update(1 / 120, {
+      ...idle,
+      shot: 'remate',
+      smash: 'por3',
+      aim: -0.9,
+      power: 1,
+      hit,
+      perfect: true,
+    });
+    exited ||= s.ballOutside;
+    retrieved ||=
+      !!s.contactPoint &&
+      s.contactPoint.playerId >= 2 &&
+      Math.abs(s.contactPoint.x) > 5;
+  }
+  assert.equal(exited, true);
+  assert.equal(retrieved, false);
+  assert.equal(s.pointWinner, 0);
+  assert.ok(Math.abs(s.ball.x) > 10 && Math.abs(s.ball.z) > 10);
+  assert.match(s.message, /Segundo pique exterior/);
+});
+
+void test('natural rally recovers outside through the door, hits opponent net face, then wins on second bounce', () => {
+  const match = new PadelMatch({
+    training: true,
+    drill: 'remate',
+    difficulty: 'dificil',
+    playerProfiles: v6Profiles,
+  });
+  const s = match.getState();
+  let fired = false,
+    door = false,
+    net = false,
+    first = false;
+  for (let i = 0; i < 1600 && s.phase !== 'point'; i++) {
+    const hit = !fired && s.canHit;
+    if (hit) fired = true;
+    match.update(1 / 120, {
+      ...idle,
+      shot: 'remate',
+      smash: 'por3',
+      aim: 0.9,
+      power: 0.82,
+      hit,
+    });
+    if (s.exteriorReturnMode === 'red' && s.eventType === 'outside-return')
+      door = true;
+    if (door && !net && s.eventType === 'net') {
+      net = true;
+      assert.equal(s.pointWinner, null);
+    }
+    if (net && !first && s.ballBounce === 1) {
+      first = true;
+      assert.ok(s.ball.z > 0);
+      assert.equal(s.phase, 'rally');
+    }
+  }
+  assert.ok(door && net && first);
+  assert.equal(s.pointWinner, 1);
+});
+
+void test('door return can exit opposite door with a legal bounce, but without it loses', () => {
+  for (const side of [-1, 1])
+    for (const high of [false, true]) {
+      const match = new PadelMatch(),
+        s = match.getState(),
+        h = internal(match),
+        p = s.players[2];
+      s.phase = 'rally';
+      s.ballOutside = true;
+      h.bounced = true;
+      h.bounces = 1;
+      // A high, flatter strike farther from the gate can cross the whole court airborne.
+      // This is a controlled contact fixture, not a claim that AI always finds it.
+      const contactX = high ? 8 : 6.2;
+      Object.assign(p, { x: side * (contactX - 0.1), z: 0.65, outside: true });
+      Object.assign(s.ball, { x: side * contactX, y: high ? 2 : 1.7, z: 0.65 });
+      h.hit(p, 'plano', high ? 1 : 0.9, 0, 'retorno', 'good', 'puerta');
+      flyWithoutPlayers(match, () => !s.ballOutside);
+      assert.equal(s.phase, 'rally');
+      flyWithoutPlayers(match, () => s.ballOutside);
+      assert.ok(s.ball.x * side < -5);
+      assert.equal(s.ballBounce, high ? 0 : 1);
+      assert.equal(s.pointWinner, null);
+      flyWithoutPlayers(match);
+      assert.equal(s.pointWinner, high ? 0 : 1);
+    }
+});
+
+void test('a reachable parallel alto smash rises above four metres after the bounce without returning', () => {
+  const match = new PadelMatch({
+    playerProfiles: [{ height: 1.9, handedness: 'right', playingSide: 'left' }],
+  });
+  const s = match.getState(),
+    h = internal(match),
+    p = s.players[0];
+  s.phase = 'rally';
+  h.lastHitter = 1;
+  Object.assign(p, { x: 2, z: 1.5 });
+  Object.assign(s.ball, { x: 2, y: 2.3, z: 1.3, vx: 0, vy: -1, vz: 0 });
+  assert.equal(h.canContact(p, 'remate'), true);
+  h.hit(p, 'remate', 1, 0, 'alto', 'perfect');
+  assert.equal(s.contactPoint?.shot, 'remate');
+  assert.equal(s.contactPoint?.quality, 'perfect');
+  assert.equal(s.smashMode, 'alto');
+  flyWithoutPlayers(match, () => s.ballBounce === 1);
+  assert.equal(s.ballBounce, 1);
+  assert.ok(
+    s.ball.z < 0 && Math.abs(s.ball.x - 2) < 0.001,
+    'parallel first bounce is legal in opponent court',
+  );
+  let peak = s.ball.y;
+  let returned = false;
+  // Passive flight harness isolates the real bounce; it does not promise an AI winner.
+  flyWithoutPlayers(match, () => {
+    peak = Math.max(peak, s.ball.y);
+    returned ||= s.returnedToHitter;
+    return false;
+  });
+  peak = Math.max(peak, s.ball.y);
+  assert.ok(peak > 4, `post-bounce peak reached ${peak.toFixed(3)} m`);
+  assert.equal(returned, false);
+  assert.ok(
+    Math.abs(s.ball.x - 2) < 0.001 && s.ball.z < -10,
+    'ball leaves parallel above the far end wall',
+  );
+  assert.equal(s.pointWinner, 0);
+  assert.match(s.message, /Remate por 4/);
+});
+
+void test('door accuracy matters and the net on the receiving side never awards before ground bounces', () => {
+  for (const side of [-1, 1])
+    for (const mode of ['puerta', 'red'] as const) {
+      const match = new PadelMatch(),
+        s = match.getState(),
+        h = internal(match),
+        p = s.players[2];
+      s.phase = 'rally';
+      s.ballOutside = true;
+      h.bounced = true;
+      h.bounces = 1;
+      Object.assign(p, { x: side * 6.1, z: 1.8, outside: true });
+      Object.assign(s.ball, { x: side * 6.2, y: 1.7, z: 1.8 });
+      h.hit(
+        p,
+        'plano',
+        0.9,
+        mode === 'puerta' ? 0.85 : 0,
+        'retorno',
+        'good',
+        mode,
+      );
+      if (mode === 'red') {
+        flyWithoutPlayers(match, () => s.eventType === 'net');
+        assert.equal(s.pointWinner, null);
+        assert.equal(s.ballBounce, 0);
+        assert.ok(s.ball.z > 0);
+        flyWithoutPlayers(match, () => s.ballBounce === 1);
+        assert.equal(s.pointWinner, null);
+        assert.ok(s.ball.z > 0);
+        flyWithoutPlayers(match);
+        assert.equal(s.pointWinner, 1);
+      } else {
+        flyWithoutPlayers(match);
+        assert.equal(s.pointWinner, 0);
+        assert.match(s.message, /exterior del cerramiento/);
+      }
+    }
+});
+
+void test('odd games change ends once, first game has no bench rest, sets have their own break', () => {
+  const match = new PadelMatch({ gamesToWin: 6, setsToWin: 2 }),
+    h = internal(match),
+    s = match.getState();
+  for (let game = 1; game <= 6; game++) {
+    for (let point = 0; point < 4; point++) {
+      h.finishPoint(0, 'Fixture de puntuación', true);
+      if (point < 3) match.nextPoint();
+    }
+    assert.equal(s.lastPoint?.gameNumber, game);
+    assert.equal(s.lastPoint?.changeEnds, game % 2 === 1);
+    assert.equal(
+      s.lastPoint?.rest,
+      game === 6 ? 'set' : game > 1 && game % 2 === 1 ? 'changeover' : 'none',
+    );
+    const before = s.endsSwapped;
+    match.nextPoint();
+    assert.equal(s.endsSwapped, game % 2 === 1 ? !before : before);
+    match.nextPoint();
+    assert.equal(s.endsSwapped, game % 2 === 1 ? !before : before);
+  }
+  assert.equal(s.score.sets[0], 1);
+});
+
+void test('tie-break changes ends every six points without sitting', () => {
+  const match = new PadelMatch(),
+    h = internal(match),
+    s = match.getState();
+  s.score.tieBreak = true;
+  s.score.points = [3, 2];
+  h.finishPoint(1, 'Fixture tie-break', true);
+  assert.equal(s.lastPoint?.changeEnds, true);
+  assert.equal(s.lastPoint?.rest, 'none');
+  match.nextPoint();
+  assert.equal(s.endsSwapped, true);
+});
 
 void test('assisted launch reaches target under quadratic drag', () => {
   const ball = solveTrajectory({ x: 2, y: 1.2, z: 5 }, { x: -2, z: -6 }, 1.6);
@@ -892,7 +1123,7 @@ void test('players leave and re-enter through their doorway but cannot cross wal
   assert.equal(p.outside, true);
   assert.ok(p.x > 5.4);
   for (let i = 0; i < 150; i++) h.movePlayer(p, 12, -3.5, 5.7, 1 / 120);
-  assert.ok(p.x <= 9 - COURT.playerRadius + 1e-6);
+  assert.ok(p.x <= 5 + COURT.exteriorWidth - COURT.playerRadius + 1e-6);
   assert.ok(p.z < 0, 'outside route may go around the net post');
   Object.assign(p, { x: 5.5, z: -0.65, vx: 0, vz: 0 });
   for (let i = 0; i < 100; i++) h.movePlayer(p, 3, -0.65, 5.7, 1 / 120);
@@ -1034,7 +1265,7 @@ void test('holding charge only prepares and perfect quality appears on a real re
   assert.equal(ls.contactPoint?.quality, 'good');
 });
 
-void test('a naturally fed perfect por3 is recovered through either gate and the rally continues', () => {
+void test('a placed por3 is recovered through either gate without constraining all powerful smashes', () => {
   const playerProfiles = [
     {
       height: 1.79,
@@ -1075,11 +1306,11 @@ void test('a naturally fed perfect por3 is recovered through either gate and the
         ...idle,
         hit,
         shot: 'remate',
-        power: 1,
+        power: 0.55,
         aim,
         smash: 'por3',
-        perfect: true,
-        timingQuality: 'perfect',
+        perfect: false,
+        timingQuality: 'good',
       });
       if (s.ballOutside && !exited) {
         exited = true;

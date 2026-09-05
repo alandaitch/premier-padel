@@ -16,7 +16,8 @@ export type Shot =
   | 'chiquita'
   | 'volea'
   | 'contrapared';
-export type Smash = 'retorno' | 'por3' | 'por4';
+export type Smash = 'retorno' | 'por3' | 'por4' | 'alto';
+export type ExteriorReturn = 'auto' | 'puerta' | 'alta' | 'red';
 export type Team = 0 | 1;
 export type TimingQuality = 'perfect' | 'good' | 'late';
 export interface Input {
@@ -33,6 +34,7 @@ export interface Input {
   charge?: number;
   perfect?: boolean;
   timingQuality?: TimingQuality;
+  exteriorReturn?: ExteriorReturn;
 }
 export interface Ball {
   x: number;
@@ -56,6 +58,7 @@ export interface Player {
   facing: number;
   swing: number;
   shot: Shot;
+  preparedShot?: Shot;
   energy: number;
   height: number;
   handedness: 'left' | 'right';
@@ -119,6 +122,10 @@ export interface GameState {
     | 'punto';
   ballOutside: boolean;
   exteriorSide: -1 | 0 | 1;
+  exteriorReturnMode: ExteriorReturn;
+  /** Court-relative coordinates keep the home pair near the broadcast camera. */
+  endsSwapped: boolean;
+  lastPoint: PointOutcome | null;
   tacticalHint: string;
   wallBounces: number;
   returnedToHitter: boolean;
@@ -152,6 +159,17 @@ export interface GameState {
     maxSpeed: number;
   };
 }
+export interface PointOutcome {
+  id: number;
+  winner: Team;
+  game: boolean;
+  set: boolean;
+  match: boolean;
+  gameNumber: number;
+  setNumber: number;
+  changeEnds: boolean;
+  rest: 'none' | 'changeover' | 'set';
+}
 export interface MatchOptions {
   difficulty?: 'facil' | 'normal' | 'dificil';
   gamesToWin?: number;
@@ -177,8 +195,8 @@ export const COURT = {
   doorMinZ: 0.1,
   doorMaxZ: 1.2,
   doorHeight: 2.2,
-  exteriorWidth: 4,
-  exteriorHalfLength: 4,
+  exteriorWidth: 8,
+  exteriorHalfLength: 7,
   playerRadius: 0.22,
 } as const;
 export const SHOT_NAMES: Record<Shot, string> = {
@@ -445,15 +463,16 @@ export function integrateBall(ball: Ball, dt: number): void {
 /** Assisted launch: numerical shooting compensates the actual air model. */
 export function solveTrajectory(
   from: { x: number; y: number; z: number },
-  target: { x: number; z: number },
+  target: { x: number; z: number; y?: number },
   flightTime: number,
   spin: Vector3 = { x: 0, y: 0, z: 0 },
 ): Ball {
-  const t = Math.max(0.12, flightTime);
+  const t = Math.max(target.y === undefined ? 0.12 : 0.03, flightTime);
+  const targetY = target.y ?? R;
   const launch: Ball = {
     ...from,
     vx: (target.x - from.x) / t,
-    vy: (R - from.y + 0.5 * G * t * t) / t,
+    vy: (targetY - from.y + 0.5 * G * t * t) / t,
     vz: (target.z - from.z) / t,
     wx: spin.x,
     wy: spin.y,
@@ -466,7 +485,7 @@ export function solveTrajectory(
     for (let i = 0; i < count; i++) integrateBall(b, dt);
     const gain = 1.05 / t;
     launch.vx += (target.x - b.x) * gain;
-    launch.vy += (R - b.y) * gain;
+    launch.vy += (targetY - b.y) * gain;
     launch.vz += (target.z - b.z) * gain;
   }
   return launch;
@@ -478,6 +497,7 @@ interface FlightAssessment {
   landing: { x: number; z: number } | null;
   walls: number;
   exit?: Ball;
+  peak?: number;
 }
 /** Used only to aim the racket; it runs the same passive ball/surface model. */
 function assessLaunch(launch: Ball, team: Team): FlightAssessment {
@@ -485,14 +505,16 @@ function assessLaunch(launch: Ball, team: Team): FlightAssessment {
     sign = signFor(team);
   let bounced = false,
     walls = 0,
+    peak = 0,
     landing: { x: number; z: number } | null = null;
   for (let i = 0; i < 480; i++) {
     const oldZ = b.z;
     integrateBall(b, 1 / 120);
+    if (bounced) peak = Math.max(peak, b.y);
     if (oldZ * b.z < 0 && b.y < 0.95)
       return { kind: 'net', height: b.y, landing, walls };
     if (b.y < R) {
-      if (bounced) return { kind: 'floor', height: b.y, landing, walls };
+      if (bounced) return { kind: 'floor', height: b.y, landing, walls, peak };
       if (b.z * sign > 0) return { kind: 'fault', height: b.y, landing, walls };
       bounced = true;
       landing = { x: b.x, z: b.z };
@@ -557,7 +579,7 @@ function strokeSpin(
     dz = (target.z - from.z) / horizontal;
   const top =
     shot === 'remate'
-      ? smash === 'por4'
+      ? smash === 'por4' || smash === 'alto'
         ? 90
         : smash === 'retorno'
           ? 0
@@ -598,21 +620,27 @@ function aimSmash(
   const sign = signFor(team),
     side = Math.sign(aim || from.x || 1);
   const depths =
-    smash === 'retorno'
-      ? [4.7, 5.8, 6.8, 7.8, 8.5]
-      : smash === 'por3'
-        ? [2.0, 3.2, 4.4, 5.5]
-        : [1.0, 1.7, 2.5];
+    smash === 'alto'
+      ? [1.0, 1.7, 2.5, 3.5, 4.7, 5.8, 6.8, 7.7, 8.5, 9.15]
+      : smash === 'retorno'
+        ? [4.7, 5.8, 6.8, 7.8, 8.5]
+        : smash === 'por3'
+          ? [2.0, 3.2, 4.4, 5.5]
+          : [1.0, 1.7, 2.5];
   const widths =
-    smash === 'por3'
-      ? [0, 0.4, 0.8, 1.2, 1.6, 2.4, 3.2]
-      : [clamp(from.x * 0.3 + aim * 1.1, -3, 3)];
-  const times =
-    smash === 'retorno'
-      ? [0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5]
+    smash === 'alto'
+      ? [clamp(from.x + aim * 2.8, -4.2, 4.2)]
       : smash === 'por3'
-        ? [0.16, 0.2, 0.24, 0.28, 0.32]
-        : [0.14, 0.18, 0.22, 0.26];
+        ? [0, 0.4, 0.8, 1.2, 1.6, 2.4, 3.2]
+        : [clamp(from.x * 0.3 + aim * 1.1, -3, 3)];
+  const times =
+    smash === 'alto'
+      ? [0.16, 0.2, 0.24, 0.28, 0.32, 0.38, 0.44, 0.5]
+      : smash === 'retorno'
+        ? [0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5]
+        : smash === 'por3'
+          ? [0.16, 0.2, 0.24, 0.28, 0.32]
+          : [0.14, 0.18, 0.22, 0.26];
   let best = { ball: fallback, target: { x: fallback.x, z: -sign * 4.5 } },
     bestScore = -1e9;
   for (const depth of depths)
@@ -638,27 +666,29 @@ function aimSmash(
           Math.sign(outcome.exit?.x ?? 0) !== side
         )
           continue;
-        const desired = outcome.kind === smash;
-        let safeRetrieval = false;
-        if (smash === 'por3' && outcome.exit) {
-          const outside = { ...outcome.exit };
-          for (let i = 0; i < 360 && (outside.y > 2.3 || outside.vy > 0); i++)
-            integrateBall(outside, 1 / 120);
-          safeRetrieval =
-            Math.abs(outside.x) < 8.7 && Math.abs(outside.z) < 3.7;
-        }
+        const highKick =
+          outcome.kind === 'floor' &&
+          outcome.walls > 0 &&
+          (outcome.peak ?? 0) > 3.6;
+        const desired =
+          smash === 'alto'
+            ? highKick || outcome.kind === 'por4'
+            : outcome.kind === smash;
         const requestedSpeed = 20 + power * 18;
         const score =
           (desired ? 1000 : 0) +
-          (safeRetrieval ? 100 : 0) -
-          (smash === 'retorno'
-            ? Math.abs(speed - requestedSpeed) * 30 +
-              Math.abs(outcome.height - 2.4)
-            : smash === 'por3'
-              ? Math.abs(outcome.height - 3.8) * 3 +
-                Math.abs(speed - requestedSpeed) * 5
-              : Math.abs(outcome.height - 4.7) * 10 +
-                Math.abs(speed - requestedSpeed));
+          (smash === 'alto' && outcome.kind === 'por4' ? 250 : 0) -
+          (smash === 'alto'
+            ? Math.abs(speed - requestedSpeed) * 14 -
+              (outcome.peak ?? outcome.height) * 5
+            : smash === 'retorno'
+              ? Math.abs(speed - requestedSpeed) * 30 +
+                Math.abs(outcome.height - 2.4)
+              : smash === 'por3'
+                ? Math.abs(outcome.height - (3.3 + power * 2.2)) * 3 +
+                  Math.abs(speed - requestedSpeed) * 5
+                : Math.abs(outcome.height - 4.7) * 10 +
+                  Math.abs(speed - requestedSpeed));
         if (score > bestScore) {
           best = { ball, target };
           bestScore = score;
@@ -712,6 +742,93 @@ function aimContrapared(
   return best;
 }
 
+/** Aim is an angle through the aperture, not a guarantee that the return is in. */
+export function aimExteriorReturn(
+  from: Vector3,
+  team: Team,
+  power: number,
+  aim: number,
+  requested: ExteriorReturn = 'auto',
+): { ball: Ball; target: { x: number; z: number }; mode: ExteriorReturn } {
+  const opponentSign = -signFor(team);
+  const side = Math.sign(from.x) || 1;
+  const gateX = side * COURT.halfWidth;
+  const gateZ = (opponentSign * (COURT.doorMinZ + COURT.doorMaxZ)) / 2;
+  let mode = requested;
+  if (mode === 'auto') {
+    const nearDoor = Math.abs(from.x) < 7.5 && from.y < 2.15;
+    mode =
+      nearDoor &&
+      from.z * opponentSign > 1.1 &&
+      from.z * opponentSign < 2.8 &&
+      Math.abs(aim) < 0.24
+        ? 'red'
+        : nearDoor && Math.abs(from.z - gateZ) < 0.55 && Math.abs(aim) < 0.45
+          ? 'puerta'
+          : 'alta';
+  }
+  if (mode === 'puerta') {
+    // Aiming off centre really misses a jamb; power can carry it through both doors.
+    const crossing = {
+      x: gateX,
+      z: gateZ + aim * 1.6,
+      y: clamp(from.y - 0.08, 0.38, 1.92),
+    };
+    const time = Math.max(
+      0.035,
+      Math.hypot(from.x - gateX, from.z - crossing.z) / (9 + power * 18),
+    );
+    return {
+      ball: solveTrajectory(from, crossing, time),
+      target: crossing,
+      mode,
+    };
+  }
+  if (mode === 'red') {
+    // Extend a ray through the opponent's opening toward their face of the net.
+    // Poor position/angle can strike the fence or the wrong face: collisions decide.
+    const denominator = gateZ - from.z;
+    const projectedX =
+      Math.abs(denominator) > 0.05
+        ? from.x +
+          ((-opponentSign * 0.12 - from.z) / denominator) * (gateX - from.x)
+        : side * 4.0;
+    const target = {
+      x: clamp(projectedX + aim * 2.4, -4.7, 4.7),
+      z: -opponentSign * 0.12,
+      y: 0.38 + power * 0.28,
+    };
+    const time = Math.max(
+      0.22,
+      Math.hypot(target.x - from.x, target.z - from.z) / (8 + power * 10),
+    );
+    return { ball: solveTrajectory(from, target, time), target, mode };
+  }
+  const target = {
+    x: clamp(aim * 4.2, -4.3, 4.3),
+    z: opponentSign * (2.1 + power * 6.1),
+  };
+  const horizontal = Math.hypot(target.x - from.x, target.z - from.z);
+  let time = Math.max(1.16, horizontal / (8 + power * 2));
+  let ball = solveTrajectory(from, target, time);
+  for (let attempt = 0; attempt < 12; attempt++) {
+    ball = solveTrajectory(from, target, time);
+    const check = { ...ball };
+    let clears = false;
+    for (let i = 0; i < 520; i++) {
+      integrateBall(check, 1 / 120);
+      if (Math.abs(check.x) <= 5 + R) {
+        clears = check.y - R > (Math.abs(check.z) > 8 ? 4 : 3);
+        break;
+      }
+      if (check.y < R) break;
+    }
+    if (clears) break;
+    time += 0.12;
+  }
+  return { ball, target, mode: 'alta' };
+}
+
 export class PadelMatch {
   private readonly keeper: ScoreKeeper;
   private readonly options: Required<MatchOptions>;
@@ -735,6 +852,9 @@ export class PadelMatch {
   private bufferedSmash: Smash = 'retorno';
   private bufferedQuality: TimingQuality = 'good';
   private bufferedCharged = false;
+  private bufferedExterior: ExteriorReturn = 'auto';
+  private returnedFromOutside = false;
+  private pendingEndsChange = false;
   private requestedWall = false;
   private plannedWalls = 0;
   private plannedPlayer = 0;
@@ -827,6 +947,9 @@ export class PadelMatch {
       ballSituation: 'saque',
       ballOutside: false,
       exteriorSide: 0,
+      exteriorReturnMode: 'auto',
+      endsSwapped: false,
+      lastPoint: null,
       tacticalHint: 'Saque y subida de la pareja a la red',
       wallBounces: 0,
       returnedToHitter: false,
@@ -893,6 +1016,7 @@ export class PadelMatch {
       this.bufferedPower = clamp(input.power, 0, 1);
       this.bufferedAim = clamp(input.aim, -1, 1);
       this.bufferedSmash = input.smash ?? 'retorno';
+      this.bufferedExterior = input.exteriorReturn ?? 'auto';
       this.bufferedQuality =
         input.timingQuality ?? (input.perfect ? 'perfect' : 'good');
     }
@@ -905,6 +1029,12 @@ export class PadelMatch {
         p.id === s.controlled && !!input.charging && !this.options.autoPlay;
       p.charge = p.charging ? clamp(input.charge ?? 0, 0, 1) : 0;
       if (p.charging) p.shot = input.shot;
+      p.preparedShot =
+        p.id === s.controlled && !this.options.autoPlay
+          ? this.hitBuffer > 0
+            ? this.bufferedShot
+            : input.shot
+          : this.chooseShot(p);
     }
     if (s.phase === 'finished') {
       this.hitWasDown = input.hit;
@@ -1019,6 +1149,7 @@ export class PadelMatch {
         !this.bufferedCharged && this.hitBuffer < 0.1
           ? 'late'
           : this.bufferedQuality,
+        this.bufferedExterior,
       );
       this.hitBuffer = 0;
     } else {
@@ -1063,6 +1194,9 @@ export class PadelMatch {
   }
   private setupPoint() {
     const s = this.state;
+    if (this.pendingEndsChange) s.endsSwapped = !s.endsSwapped;
+    this.pendingEndsChange = false;
+    this.returnedFromOutside = false;
     s.phase = 'serve';
     this.phaseTime = 0;
     s.pointWinner = null;
@@ -1306,13 +1440,17 @@ export class PadelMatch {
               ? p.height + 0.65
               : p.height + 0.13;
     const reach =
-      b.y > 2.9
-        ? 0.65
-        : b.y > 2.6
-          ? 0.85
-          : p.id === s.controlled && !this.options.autoPlay
-            ? 1.36
-            : 1.2;
+      b.y < 0.5
+        ? p.id === s.controlled && !this.options.autoPlay
+          ? 0.88
+          : 0.62
+        : b.y > 2.9
+          ? 0.65
+          : b.y > 2.6
+            ? 0.85
+            : p.id === s.controlled && !this.options.autoPlay
+              ? 1.36
+              : 1.2;
     return b.y <= maxHeight && distance(p, b) < reach;
   }
 
@@ -1384,6 +1522,7 @@ export class PadelMatch {
     aim: number,
     smash: Smash = 'retorno',
     timingQuality: TimingQuality = 'good',
+    exteriorReturn: ExteriorReturn = 'auto',
   ) {
     const s = this.state,
       b = s.ball;
@@ -1545,31 +1684,18 @@ export class PadelMatch {
       target = { x: aim * 3, z: -sign * 6.5 };
     }
     if (s.ballOutside) {
-      // Assisted outside return chooses only a real entry: over the side fence.
-      target = { x: clamp(aim * 2.5, -3.5, 3.5), z: -sign * 5.8 };
-      const horizontal = Math.hypot(target.x - from.x, target.z - from.z);
-      let outsideTime = Math.max(1.2, horizontal / 9);
-      for (let attempt = 0; attempt < 12; attempt++) {
-        launch = solveTrajectory(
-          from,
-          target,
-          outsideTime,
-          strokeSpin(from, target, 'globo', power, aim, smash),
-        );
-        const check = { ...launch };
-        let clears = false;
-        for (let i = 0; i < 480; i++) {
-          integrateBall(check, 1 / 120);
-          if (Math.abs(check.x) <= 5 + R) {
-            clears = check.y - R > (Math.abs(check.z) > 8 ? 4 : 3);
-            break;
-          }
-          if (check.y < R) break;
-        }
-        if (clears) break;
-        outsideTime += 0.14;
-      }
+      const plan = aimExteriorReturn(
+        from,
+        p.team,
+        power,
+        automatic && exteriorReturn === 'auto' ? 0 : aim,
+        exteriorReturn,
+      );
+      launch = plan.ball;
+      target = plan.target;
+      s.exteriorReturnMode = plan.mode;
     }
+    this.returnedFromOutside = s.ballOutside;
     Object.assign(b, launch);
     if (mishit) {
       // A rushed lob tends to sail long; a poorly centred drive loses lift.
@@ -1643,7 +1769,9 @@ export class PadelMatch {
                   ? 'Pique, vidrio y vuelta: el receptor todavía puede llegar'
                   : smash === 'por3'
                     ? 'Buscá la salida lateral después del pique'
-                    : 'Remate por 4: necesitás altura y cercanía a la red'
+                    : smash === 'alto'
+                      ? 'Paralelo alto: buscá altura, ángulo y un espacio libre'
+                      : 'Remate por 4: necesitás altura y cercanía a la red'
                 : wallExit
                   ? 'Salí con la pelota después del vidrio'
                   : 'Mantené la distancia con tu compañero';
@@ -1657,7 +1785,9 @@ export class PadelMatch {
             ? ' · Traérmela'
             : smash === 'por3'
               ? ' · Por 3'
-              : ' · Por 4'
+              : smash === 'alto'
+                ? ' · Paralelo alto'
+                : ' · Por 4'
           : ''),
     );
   }
@@ -1744,7 +1874,12 @@ export class PadelMatch {
         b.vz *= -0.1;
         b.vx *= 0.4;
         b.vy = Math.min(0, b.vy) * 0.3;
-        this.emit('net', 'Red');
+        this.emit(
+          'net',
+          this.returnedFromOutside && sideOf(oldZ) !== this.lastHitter
+            ? 'Cara rival de la red · Tiene que picar en su campo'
+            : 'Red',
+        );
       }
     }
     if (
@@ -1973,9 +2108,34 @@ export class PadelMatch {
     if (isWinner) s.stats.winners[winner]++;
     else s.stats.errors[opposite(winner)]++;
     const wasTieBreak = s.score.tieBreak;
+    const gamesBefore = s.score.games[0] + s.score.games[1];
+    const tiePoints = s.score.points[0] + s.score.points[1] + 1;
     const result = this.options.training
       ? { game: false, set: false, match: false }
       : this.keeper.award(winner);
+    const gameNumber = gamesBefore + (result.game ? 1 : 0);
+    const changeEnds =
+      !this.options.training &&
+      !result.match &&
+      ((result.game && gameNumber % 2 === 1) ||
+        (wasTieBreak && !result.game && tiePoints % 6 === 0));
+    this.pendingEndsChange = changeEnds;
+    s.lastPoint = {
+      id: s.stats.totalPoints,
+      winner,
+      ...result,
+      gameNumber,
+      setNumber: s.score.history.length + (result.set ? 0 : 1),
+      changeEnds,
+      rest:
+        result.match || this.options.training
+          ? 'none'
+          : result.set
+            ? 'set'
+            : result.game && gameNumber > 1 && gameNumber % 2 === 1
+              ? 'changeover'
+              : 'none',
+    };
     if (result.game) {
       if (wasTieBreak)
         this.gameServerIndex = (this.tieBreakStartServer + 1) % 4;
@@ -2269,8 +2429,18 @@ export class PadelMatch {
         )
           continue;
         const target = {
-          x: Math.sign(sample.x) * clamp(Math.abs(sample.x) - 0.2, 5.45, 8.7),
-          z: clamp(sample.z, -3.65, 3.65),
+          x:
+            Math.sign(sample.x) *
+            clamp(
+              Math.abs(sample.x) - 0.2,
+              5.45,
+              5 + COURT.exteriorWidth - 0.3,
+            ),
+          z: clamp(
+            sample.z,
+            -COURT.exteriorHalfLength + 0.35,
+            COURT.exteriorHalfLength - 0.35,
+          ),
         };
         for (const p of allowed) {
           const route = this.routePlayer(p, target);

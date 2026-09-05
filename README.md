@@ -125,3 +125,16 @@ falta medición de trayectorias con cámaras y datos de cada césped/vidrio real
 
 Los nombres identifican jugadores y torneos reales. Las geometrías, texturas y sonidos se crean localmente.
 No se reutilizan texturas, modelos ni audio de Tennis Elbow 4. Outfit y Barlow Condensed: Google Fonts.
+
+## Edición 06
+
+Controles por tres familias, combos y remapeo de teclado/joystick. Juego exterior libre con devoluciones por puerta, altas y a la red rival. Remate paralelo alto. Celebraciones, entrenadores, descansos, cambio visual de lado y diálogos ficticios sensibles al marcador.
+
+- `CONTROLS-V6.md`, `GAMEPAD-AUDIT-V6.md`: mapping y límites del mando.
+- `PHYSICS-V6.md`: casos exteriores y evidencia de vuelo real.
+- `SCENES-V6.md`: continuidad del partido e interludios.
+- `RENDERER-V6.md`, `PADEL-REVIEW-V6.md`: presentación y revisión independiente.
+
+`npm test` incluye física, carga, controles, adaptador de mando y director de escenas.
+
+Validación V6: 71 pruebas aprobadas y TypeScript sin errores. Lint dirigido del motor, renderer y módulos de controles/escenas aprobado. El lint global de la UI sigue fallando por reglas de React Compiler y preferencias semánticas de accesibilidad; no se declara limpio. Hardware de joystick todavía no probado físicamente.
