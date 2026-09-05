@@ -1,0 +1,122 @@
+export const TEAMS = [
+  {
+    name: 'Tapia / Coello',
+    players: ['Agustín Tapia', 'Arturo Coello'],
+    countries: 'ARG / ESP',
+    style: 'Potencia y creatividad',
+    color: '#c7f465',
+  },
+  {
+    name: 'Galán / Chingotto',
+    players: ['Alejandro Galán', 'Federico Chingotto'],
+    countries: 'ESP / ARG',
+    style: 'Presión y defensa',
+    color: '#a9ddff',
+  },
+  {
+    name: 'Lebrón / Augsburger',
+    players: ['Juan Lebrón', 'Leo Augsburger'],
+    countries: 'ESP / ARG',
+    style: 'Ataque y remate',
+    color: '#ffac87',
+  },
+  {
+    name: 'Nieto / Yanguas',
+    players: ['Coki Nieto', 'Mike Yanguas'],
+    countries: 'ESP / ESP',
+    style: 'Control y consistencia',
+    color: '#dbbdff',
+  },
+  {
+    name: 'Sanz / Stupaczuk',
+    players: ['Jon Sanz', 'Franco Stupaczuk'],
+    countries: 'ESP / ARG',
+    style: 'Velocidad y transiciones',
+    color: '#8ce4d4',
+  },
+  {
+    name: 'Di Nenno / Navarro',
+    players: ['Martín Di Nenno', 'Paquito Navarro'],
+    countries: 'ARG / ESP',
+    style: 'Defensa y talento',
+    color: '#f7d381',
+  },
+  {
+    name: 'Leal / Guerrero',
+    players: ['Javi Leal', 'Fran Guerrero'],
+    countries: 'ESP / ESP',
+    style: 'Agresividad y ritmo',
+    color: '#ffaeb9',
+  },
+  {
+    name: 'Tello / Aguirre',
+    players: ['Juan Tello', 'Maxi Aguirre'],
+    countries: 'ARG / ARG',
+    style: 'Juego aéreo',
+    color: '#b1bdff',
+  },
+];
+export const VENUES = [
+  {
+    id: 'madrid',
+    name: 'Madrid P1',
+    city: 'Madrid, España',
+    arena: 'Movistar Arena',
+    category: 'P1',
+    subtitle: 'La central de Madrid',
+  },
+  {
+    id: 'paris',
+    name: 'Paris Major',
+    city: 'París, Francia',
+    arena: 'Stade Roland-Garros',
+    category: 'MAJOR',
+    subtitle: 'El escenario de París',
+  },
+  {
+    id: 'rome',
+    name: 'Italy Major',
+    city: 'Roma, Italia',
+    arena: 'Foro Italico',
+    category: 'MAJOR',
+    subtitle: 'La noche de Roma',
+  },
+];
+export const SHOTS = [
+  {
+    id: 'plano',
+    name: 'Plano',
+    key: '1',
+    tip: 'Golpe de fondo o volea. Seguro y directo.',
+  },
+  {
+    id: 'globo',
+    name: 'Globo',
+    key: '2',
+    tip: 'Ganale la espalda al rival y recuperá la red.',
+  },
+  {
+    id: 'bandeja',
+    name: 'Bandeja',
+    key: '3',
+    tip: 'Bola alta, contacto sobre el hombro y control.',
+  },
+  {
+    id: 'vibora',
+    name: 'Víbora',
+    key: '4',
+    tip: 'Efecto lateral y rebote bajo contra el vidrio.',
+  },
+  {
+    id: 'remate',
+    name: 'Remate ×3',
+    key: '5',
+    tip: 'Atacá una bola alta cerca de la red. Cargá potencia.',
+  },
+  {
+    id: 'dejada',
+    name: 'Dejada',
+    key: '6',
+    tip: 'Toque corto para atraer al rival a la red.',
+  },
+] as const;
