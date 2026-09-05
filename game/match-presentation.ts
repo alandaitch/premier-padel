@@ -2,7 +2,10 @@ import type { GameState, Team, PointOutcome } from './physics';
 
 export interface PresentationState {
   id: number;
-  phase: 'celebration' | 'walk' | 'bench' | 'return';
+  phase: 'celebration' | 'walk' | 'bench' | 'return' | 'signature';
+  signaturePlayerId?: number;
+  signatureAvailable?: boolean;
+  signatureSecondsLeft?: number;
   progress: number;
   winnerTeam: Team | null;
   focusTeam: Team | null;
@@ -44,6 +47,7 @@ function benchDialogue(p: PresentationState, point: PointOutcome): string {
 /** Presentation clock is separate from simulation. It never advances a point. */
 export class MatchPresentation {
   private seen = 0;
+  private signatureUsed = false;
   private elapsed = 0;
   private point: PointOutcome | null = null;
   private template: PresentationState | null = null;
@@ -54,6 +58,7 @@ export class MatchPresentation {
 
   reset(): void {
     this.seen = 0;
+    this.signatureUsed = false;
     this.elapsed = 0;
     this.point = null;
     this.template = null;
@@ -63,6 +68,21 @@ export class MatchPresentation {
     this.point = null;
     this.template = null;
     this.phases = [];
+  }
+  get signatureAvailable(): boolean {
+    return (
+      !!this.point?.match &&
+      this.template?.signaturePlayerId !== undefined &&
+      !this.signatureUsed &&
+      this.elapsed < 8
+    );
+  }
+  triggerSignature(): boolean {
+    if (!this.signatureAvailable) return false;
+    this.signatureUsed = true;
+    this.elapsed = 0;
+    this.phases = [{ phase: 'signature', duration: 8.8 }];
+    return true;
   }
   get active(): boolean {
     return this.point !== null;
@@ -84,6 +104,15 @@ export class MatchPresentation {
       this.seen = point.id;
       this.point = point;
       this.elapsed = 0;
+      this.signatureUsed = false;
+      const signaturePlayerId =
+        point.match &&
+        state.phase === 'finished' &&
+        state.winner === point.winner
+          ? playerIds.findIndex(
+              (id, i) => id === 'lebron' && Math.floor(i / 2) === point.winner,
+            )
+          : -1;
       const frustration: [number, number] = [
         teamFrustration(state, 0),
         teamFrustration(state, 1),
@@ -101,6 +130,8 @@ export class MatchPresentation {
             : 1;
       this.template = {
         id: point.id,
+        signaturePlayerId:
+          signaturePlayerId >= 0 ? signaturePlayerId : undefined,
         phase: 'celebration',
         progress: 0,
         winnerTeam: point.winner,
@@ -113,7 +144,14 @@ export class MatchPresentation {
       this.phases = [
         {
           phase: 'celebration',
-          duration: point.match ? 3.8 : point.game ? 2 : 1.35,
+          duration:
+            signaturePlayerId >= 0
+              ? 8
+              : point.match
+                ? 3.8
+                : point.game
+                  ? 2
+                  : 1.35,
         },
       ];
       if (!point.match && point.rest !== 'none') {
@@ -137,23 +175,31 @@ export class MatchPresentation {
       if (time < item.duration) {
         const result = {
           ...this.template,
+          signatureAvailable: this.signatureAvailable,
+          signatureSecondsLeft: this.signatureAvailable
+            ? Math.max(0, 8 - this.elapsed)
+            : 0,
           phase: item.phase,
           progress: time / item.duration,
         };
         result.dialogue =
-          item.phase === 'bench'
-            ? benchDialogue(result, this.point)
-            : item.phase === 'walk'
-              ? this.point.set
-                ? 'Fin del set · Conversación con el equipo'
-                : 'Cambio de lado'
-              : item.phase === 'return'
-                ? 'Volvemos a la pista'
-                : this.point.match
-                  ? 'Partido. Saludo a los rivales.'
-                  : this.point.game
-                    ? 'Juego. ¡Vamos!'
-                    : '¡Buen punto!';
+          item.phase === 'signature'
+            ? 'El Lobo · Festejo desbloqueado'
+            : this.signatureAvailable
+              ? 'Lebrón ganó. Es momento de mostrar quién manda.'
+              : item.phase === 'bench'
+                ? benchDialogue(result, this.point)
+                : item.phase === 'walk'
+                  ? this.point.set
+                    ? 'Fin del set · Conversación con el equipo'
+                    : 'Cambio de lado'
+                  : item.phase === 'return'
+                    ? 'Volvemos a la pista'
+                    : this.point.match
+                      ? 'Partido. Saludo a los rivales.'
+                      : this.point.game
+                        ? 'Juego. ¡Vamos!'
+                        : '¡Buen punto!';
         return result;
       }
       time -= item.duration;

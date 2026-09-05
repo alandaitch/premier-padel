@@ -2599,3 +2599,15 @@ div:has(> [data-slot='select-content'].padel-select) {
 .match-scene button { display: inline-flex; align-items: center; gap: 10px; border: 1px solid #ffffff35; border-radius: 6px; padding: 8px 15px; background: #ffffff0d; font-size: 12px; font-weight: 700; }
 .match-scene kbd { padding: 2px 5px; border: 1px solid #ffffff40; border-radius: 3px; font-size: 10px; color: #abe6cf; }
 @media (max-height: 600px) { .match-scene { bottom: 12px; padding: 10px 16px; } .match-scene p { margin: 6px 0; } }
+
+/* V7: an action sequence unlocks the winner's signature celebration. */
+.signature-scene { border-color: #d5fb58bb; background: linear-gradient(115deg, #122126f5, #23361ff2); }
+.signature-scene small { color: #d5fb58; }
+.victory-code { margin: 0 auto 14px; }
+.victory-code > div, .signature-help-code { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; }
+.victory-code kbd, .signature-help-code kbd { min-width: 29px; padding: 5px 8px; font-size: 14px; font-weight: 800; text-align: center; }
+.victory-code kbd.accepted { background: #d5fb58; border-color: #d5fb58; color: #14241d; }
+.victory-code > span { display: block; margin-top: 8px; font-size: 12px; color: #b8c9c4; }
+.signature-help { padding: 12px 14px; margin: 14px 0 20px; border: 1px solid #d5fb5855; border-radius: 8px; background: #d5fb5807; }
+.signature-help summary { cursor: pointer; color: #d5fb58; font-size: 14px; font-weight: 700; }
+.signature-help p { margin-top: 12px; }

@@ -125,3 +125,81 @@ void test('a real AI match can pause for every presentation and still reach resu
   assert.ok(benches > 0 && returns > 0);
   assert.ok(state.score.sets.some((s) => s === 2));
 });
+
+function finalFor(winner: 0 | 1): GameState {
+  const state = fixture({ winner, game: true, set: true, match: true });
+  state.phase = 'finished';
+  state.winner = winner;
+  state.pointWinner = winner;
+  return state;
+}
+void test('signature is available only when Lebron is on the winning match team, in either slot', () => {
+  for (const position of [0, 1, 2, 3])
+    for (const winner of [0, 1] as const) {
+      const names = ['tapia', 'coello', 'galan', 'chingotto'];
+      names[position] = 'lebron';
+      const d = new MatchPresentation(),
+        s = finalFor(winner);
+      const scene = d.update(s, 0, names)!;
+      assert.equal(d.signatureAvailable, Math.floor(position / 2) === winner);
+      assert.equal(
+        scene.signaturePlayerId,
+        Math.floor(position / 2) === winner ? position : undefined,
+      );
+      assert.equal(d.triggerSignature(), Math.floor(position / 2) === winner);
+    }
+  const absent = new MatchPresentation();
+  absent.update(finalFor(0), 0, ['tapia', 'coello', 'galan', 'chingotto']);
+  assert.equal(absent.triggerSignature(), false);
+});
+void test('winning a point, game or set does not unlock the signature', () => {
+  for (const outcome of [{}, { game: true }, { game: true, set: true }]) {
+    const d = new MatchPresentation(),
+      s = fixture({ winner: 0, ...outcome });
+    d.update(s, 0, roster);
+    assert.equal(d.signatureAvailable, false);
+    assert.equal(d.triggerSignature(), false);
+  }
+  const contradictory = finalFor(0);
+  contradictory.winner = 1;
+  const d = new MatchPresentation();
+  d.update(contradictory, 0, roster);
+  assert.equal(d.triggerSignature(), false);
+});
+void test('signature window expires, a paused clock does not, and playback is once per victory', () => {
+  const s = finalFor(0),
+    d = new MatchPresentation();
+  d.update(s, 0, roster);
+  for (let i = 0; i < 200; i++) d.update(s, 0, roster);
+  assert.equal(d.signatureAvailable, true);
+  for (let i = 0; i < 81; i++) d.update(s, 0.1, roster);
+  assert.equal(d.signatureAvailable, false);
+  assert.equal(d.triggerSignature(), false);
+  d.reset();
+  d.update(s, 0, roster);
+  const before = JSON.stringify(s);
+  assert.equal(d.triggerSignature(), true);
+  assert.equal(d.triggerSignature(), false);
+  const p = d.update(s, 0.1, roster)!;
+  assert.equal(p.phase, 'signature');
+  assert.equal(p.signaturePlayerId, 0);
+  assert.equal(p.signatureAvailable, false);
+  assert.equal(d.active, true);
+  for (let i = 0; i < 90; i++) d.update(s, 0.1, roster);
+  assert.equal(d.active, false);
+  assert.equal(d.update(s, 0, roster), null);
+  assert.equal(JSON.stringify(s), before);
+});
+void test('skipping the secret restores normal result flow without replaying it', () => {
+  const d = new MatchPresentation(),
+    s = finalFor(0);
+  d.update(s, 0, roster);
+  d.triggerSignature();
+  d.skip();
+  assert.equal(d.active, false);
+  assert.equal(d.signatureAvailable, false);
+  assert.equal(d.update(s, 0.1, roster), null);
+  assert.equal(d.triggerSignature(), false);
+  d.reset();
+  assert.equal(d.update(s, 0, roster)?.signatureAvailable, true);
+});

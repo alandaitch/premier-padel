@@ -44,6 +44,7 @@ import {
 import { PadelAudio } from '@/game/audio';
 import { TEAMS, VENUES, SHOTS } from '@/game/catalog';
 import { familyShot } from '@/game/controls';
+import { VictoryCombo, VICTORY_SEQUENCE } from '@/game/victory-combo';
 import {
   ACTION_LABELS,
   DEFAULT_BINDINGS,
@@ -164,6 +165,8 @@ export default function PadelGame() {
   const keys = useRef(new Set<string>());
   const combos = useRef(new ShotCombos());
   const director = useRef(new MatchPresentation());
+  const victoryCombo = useRef(new VictoryCombo());
+  const [victoryProgress, setVictoryProgress] = useState(0);
   const scene = useRef<PresentationState | null>(null);
   const training = useRef(false);
   const roster = useRef<string[]>([]);
@@ -302,6 +305,7 @@ export default function PadelGame() {
     setPresentation(null);
     keys.current.clear();
     combos.current.reset();
+    victoryCombo.current.reset();
     cancelCharge();
     input.current.hit = false;
     if (match.current?.getState().phase === 'point') match.current.nextPoint();
@@ -317,6 +321,7 @@ export default function PadelGame() {
     setScreen(s);
     keys.current.clear();
     combos.current.reset();
+    victoryCombo.current.reset();
     padState.current.x = padState.current.z = padState.current.aim = 0;
     cancelCharge();
     input.current.hit = false;
@@ -338,6 +343,7 @@ export default function PadelGame() {
     if (patch.controlScheme || patch.bindings) {
       keys.current.clear();
       combos.current.reset();
+      victoryCombo.current.reset();
       cancelCharge();
     }
   };
@@ -532,11 +538,30 @@ export default function PadelGame() {
       const current = match.current?.getState();
       if (!current) return;
       if (director.current.active) {
-        if (action === 'quick' || action === 'base') skipPresentation();
+        if (director.current.signatureAvailable) {
+          const token =
+            device === 'keyboard' &&
+            settingsRef.current.controlScheme === 'clasico' &&
+            action === 'lob'
+              ? 'control'
+              : action;
+          if (
+            victoryCombo.current.feed(token, now) &&
+            director.current.triggerSignature()
+          ) {
+            scene.current = director.current.update(current, 0, roster.current);
+            renderer.current?.setPresentation(scene.current);
+            setPresentation(scene.current);
+            audio.current?.play('signature');
+          }
+          setVictoryProgress(victoryCombo.current.progress);
+          if (action === 'quick') skipPresentation();
+        } else if (action === 'quick' || action === 'base') skipPresentation();
         return;
       }
       if (action === 'switch') {
         combos.current.reset();
+        victoryCombo.current.reset();
         cancelCharge();
         input.current.switchPlayer = true;
         return;
@@ -564,12 +589,14 @@ export default function PadelGame() {
       }
       if (action === 'smash') {
         combos.current.reset();
+        victoryCombo.current.reset();
         if (current.phase === 'rally') beginCharge(source);
         else fireStroke('plano');
         return;
       }
       if (action === 'quick') {
         combos.current.reset();
+        victoryCombo.current.reset();
         fireStroke(familyShot('base', current));
         return;
       }
@@ -598,6 +625,7 @@ export default function PadelGame() {
       };
       if (direct[action]) {
         combos.current.reset();
+        victoryCombo.current.reset();
         fireStroke(direct[action]!);
       }
     };
@@ -625,6 +653,7 @@ export default function PadelGame() {
       if (!pad) {
         if (previousPadIndex !== -1) {
           combos.current.reset();
+          victoryCombo.current.reset();
           cancelCharge();
           input.current.hit = false;
           padState.current = { x: 0, z: 0, aim: 0, held: new Set(), index: -1 };
@@ -647,6 +676,7 @@ export default function PadelGame() {
       if (newDevice) {
         if (previousPadIndex >= 0) {
           combos.current.reset();
+          victoryCombo.current.reset();
           cancelCharge();
           input.current.hit = false;
           padState.current = { x: 0, z: 0, aim: 0, held: new Set(), index: -1 };
@@ -697,6 +727,20 @@ export default function PadelGame() {
         )
           setActiveDevice('gamepad');
         if (!newDevice) {
+          if (
+            screenRef.current === 'play' &&
+            director.current.signatureAvailable &&
+            [...pressed].some(
+              (button) =>
+                !previousPadButtons.has(button) &&
+                !relevantActions('simple').some(
+                  (action) => bindings[action] === button,
+                ),
+            )
+          ) {
+            victoryCombo.current.reset();
+            setVictoryProgress(0);
+          }
           // Releases must precede presses so a sequential combination stays sequential.
           for (const action of relevantActions('simple')) {
             const button = bindings[action];
@@ -740,6 +784,7 @@ export default function PadelGame() {
       measured += dt;
       frames++;
       pollGamepad(now);
+      if (screenRef.current === 'play') victoryCombo.current.expire(now);
       if (screenRef.current === 'play' && !director.current.active)
         runIntents(combos.current.flush(now));
       const m = match.current!;
@@ -801,6 +846,7 @@ export default function PadelGame() {
             );
             if (!wasPresenting && director.current.active) {
               combos.current.reset();
+              victoryCombo.current.reset();
               keys.current.clear();
               cancelCharge();
               touch.current = { x: 0, z: 0 };
@@ -899,6 +945,7 @@ export default function PadelGame() {
       if (publish > (charge.current === null ? 0.09 : 0.033)) {
         setState(JSON.parse(JSON.stringify(s)));
         setPresentation(scene.current);
+        setVictoryProgress(victoryCombo.current.progress);
         if (charge.current !== null) {
           const sample = sampleSmashCharge(
             now - charge.current,
@@ -962,6 +1009,16 @@ export default function PadelGame() {
       const action = relevantActions(currentSettings.controlScheme).find(
         (item) => currentSettings.bindings.keyboard[item] === e.code,
       );
+      if (
+        !action &&
+        e.code !== 'Escape' &&
+        !e.repeat &&
+        screenRef.current === 'play' &&
+        director.current.signatureAvailable
+      ) {
+        victoryCombo.current.reset();
+        setVictoryProgress(0);
+      }
       // Escape remains an emergency pause when the user maps pause elsewhere.
       if (
         !action &&
@@ -995,6 +1052,7 @@ export default function PadelGame() {
     const blur = () => {
       keys.current.clear();
       combos.current.reset();
+      victoryCombo.current.reset();
       cancelCharge();
       input.current.hit = false;
       if (screenRef.current === 'play') changeScreen('pause');
@@ -1161,6 +1219,13 @@ export default function PadelGame() {
     activeDevice === 'gamepad' && padInfo.connected
       ? padLabel(settings.bindings.gamepad[action])
       : keyLabel(settings.bindings.keyboard[action]);
+  const signatureLabels = VICTORY_SEQUENCE.map((action) =>
+    action === 'control' &&
+    !(activeDevice === 'gamepad' && padInfo.connected) &&
+    settings.controlScheme === 'clasico'
+      ? keyLabel(settings.bindings.keyboard.lob)
+      : controlLabel(action),
+  );
   const simpleControls =
     settings.controlScheme === 'simple' ||
     (activeDevice === 'gamepad' && padInfo.connected);
@@ -1223,7 +1288,7 @@ export default function PadelGame() {
             </a>
             <div className="edition">
               <span className="status-dot" />
-              EDICIÓN JUGABLE<span className="edition-sep">/</span>06
+              EDICIÓN JUGABLE<span className="edition-sep">/</span>07
             </div>
             <button
               className="icon-button"
@@ -1490,15 +1555,40 @@ export default function PadelGame() {
             </div>
           </header>
           {screen === 'play' && presentation && (
-            <section className="match-scene" aria-live="polite">
+            <section
+              className={`match-scene ${presentation.phase === 'signature' ? 'signature-scene' : ''}`}
+              aria-live="polite"
+            >
               <small>
-                {presentation.phase === 'bench'
-                  ? 'EN EL BANQUILLO · ESCENA FICTICIA'
-                  : presentation.phase === 'celebration'
-                    ? 'EL PUNTO ES SUYO'
-                    : 'CAMBIO DE LADO'}
+                {presentation.phase === 'signature'
+                  ? 'EL LOBO · FESTEJO ESPECIAL'
+                  : presentation.signatureAvailable
+                    ? 'VICTORIA DE LEBRÓN · INGRESÁ EL CÓDIGO'
+                    : presentation.phase === 'bench'
+                      ? 'EN EL BANQUILLO · ESCENA FICTICIA'
+                      : presentation.phase === 'celebration'
+                        ? 'EL PUNTO ES SUYO'
+                        : 'CAMBIO DE LADO'}
               </small>
               <p>{presentation.dialogue}</p>
+              {presentation.signatureAvailable && (
+                <div className="victory-code">
+                  <div aria-label="Código del festejo secreto">
+                    {signatureLabels.map((label, index) => (
+                      <kbd
+                        key={index}
+                        className={index < victoryProgress ? 'accepted' : ''}
+                      >
+                        {label}
+                      </kbd>
+                    ))}
+                  </div>
+                  <span>
+                    {Math.ceil(presentation.signatureSecondsLeft ?? 0)} s · Tocá
+                    y soltá cada tecla
+                  </span>
+                </div>
+              )}
               <button onClick={skipPresentation}>
                 Continuar <kbd>{controlLabel('quick')}</kbd>
                 <ArrowRight size={17} />
@@ -2382,6 +2472,28 @@ export default function PadelGame() {
             <div className="help-columns">
               <div>
                 <h3>Tres botones. Todos los recursos.</h3>
+                <details className="signature-help">
+                  <summary>Festejo secreto de Lebrón</summary>
+                  <p>
+                    Cuando su pareja gana el partido, tenés ocho segundos para
+                    ingresar:
+                  </p>
+                  <p className="signature-help-code">
+                    {signatureLabels.map((label, index) => (
+                      <kbd key={index}>{label}</kbd>
+                    ))}
+                  </p>
+                  <p>
+                    Son seis pulsaciones seguidas: abajo, abajo, arriba,
+                    derecha, base y control. Con teclado clásico, la última es
+                    globo. Soltá cada tecla; completalo en 3,2 segundos. En
+                    joystick, usá la cruceta y los botones correspondientes.
+                  </p>
+                  <p>
+                    Lebrón se saca la camiseta y la muestra a los rivales. Sólo
+                    se activa tras ganar el partido, una vez por victoria.
+                  </p>
+                </details>
                 <p>
                   <kbd>
                     {controlLabel('up')} {controlLabel('left')}{' '}

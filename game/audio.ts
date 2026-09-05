@@ -63,6 +63,49 @@ export class PadelAudio {
     const applause = /point|win|finish|match|game/.test(type);
     const glass = /wall|glass/.test(type);
     const bounce = /bounce/.test(type);
+    if (type === 'signature') {
+      // Original short stadium sting, independent of the reference video's audio.
+      for (const [frequency, delay] of [
+        [196, 0],
+        [261.63, 0.11],
+        [392, 0.24],
+        [523.25, 0.4],
+      ]) {
+        const tone = c.createOscillator(),
+          envelope = c.createGain();
+        tone.type = 'triangle';
+        tone.frequency.value = frequency;
+        envelope.gain.setValueAtTime(0, now + delay);
+        envelope.gain.linearRampToValueAtTime(0.1, now + delay + 0.018);
+        envelope.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.38);
+        tone.connect(envelope).connect(pan);
+        tone.start(now + delay);
+        tone.stop(now + delay + 0.42);
+        tone.onended = () => {
+          tone.disconnect();
+          envelope.disconnect();
+        };
+      }
+      const roar = c.createBufferSource(),
+        filter = c.createBiquadFilter();
+      roar.buffer = this.noise(2.5);
+      filter.type = 'bandpass';
+      filter.frequency.value = 1150;
+      filter.Q.value = 0.6;
+      roar.connect(filter).connect(gain);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.12, now + 0.55);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 2.45);
+      roar.start();
+      roar.stop(now + 2.5);
+      roar.onended = () => {
+        roar.disconnect();
+        filter.disconnect();
+        gain.disconnect();
+        pan.disconnect();
+      };
+      return;
+    }
     if (type === 'perfect') {
       // A short racket crack, body thump and bright tail; the ball remains audible.
       const crack = c.createBufferSource();

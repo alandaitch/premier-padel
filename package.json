@@ -11,7 +11,7 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",
-    "test": "tsx --test game/physics.test.ts game/smash-charge.test.ts game/control-mapping.test.ts game/gamepad-controls.test.ts game/match-presentation.test.ts",
+    "test": "tsx --test game/physics.test.ts game/smash-charge.test.ts game/control-mapping.test.ts game/gamepad-controls.test.ts game/match-presentation.test.ts game/victory-combo.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,6 +1,6 @@
 # Premier Padel
 
-Juego 3D de pádel en español. Quinta edición jugable, inspirada en Premier Padel.
+Juego 3D de pádel en español. Séptima edición jugable, inspirada en Premier Padel.
 Implementación independiente con Three.js, React y Vinext/Vite. No modifica alandaitch.com.
 
 ## Jugar
@@ -13,7 +13,10 @@ Implementación independiente con Three.js, React y Vinext/Vite. No modifica ala
 - Tres dificultades y tres cámaras.
 - Configuración y títulos obtenidos guardados en este navegador.
 
-Teclado: WASD/flechas para moverse. J: golpe normal; K: globo; L: remate;
+El esquema predeterminado usa WASD/flechas, J y K combinables y L para cargar el remate.
+El remapeo y los combos están detallados en `CONTROLS-V6.md` y en «Cómo jugar».
+
+En el esquema clásico opcional: WASD/flechas para moverse. J: golpe normal; K: globo; L: remate;
 U: bandeja; I: víbora; O: toque corto. L se mantiene para cargar: A/D apuntan,
 soltar en verde busca un remate perfecto. La ventana se ajusta en configuración o pausa.
 Los demás golpes se ejecutan directamente.
@@ -119,7 +122,7 @@ No hay multiplayer online ni soporte específico de gamepad. No se afirma parida
 - Sedes Major: https://www.padelfip.com/2025/06/premier-padel-and-fip-secure-major-renewals-across-flagship-tournaments-and-announce-strategic-developments-as-tour-continues-its-meteoric-growth/
 - Referencias TE4: https://www.managames.com/tennis/screenshot_en.html
 
-La salida por tres termina el punto porque esta edición no habilita juego exterior.
+La salida por tres sigue viva para la recuperación exterior; el por cuatro termina el punto.
 El efecto y los contactos son modelos aproximados. Se calibró la caída FIP y se comprobó energía pasiva;
 falta medición de trayectorias con cámaras y datos de cada césped/vidrio real.
 
@@ -138,3 +141,15 @@ Controles por tres familias, combos y remapeo de teclado/joystick. Juego exterio
 `npm test` incluye física, carga, controles, adaptador de mando y director de escenas.
 
 Validación V6: 71 pruebas aprobadas y TypeScript sin errores. Lint dirigido del motor, renderer y módulos de controles/escenas aprobado. El lint global de la UI sigue fallando por reglas de React Compiler y preferencias semánticas de accesibilidad; no se declara limpio. Hardware de joystick todavía no probado físicamente.
+
+## Edición 07
+
+Festejo secreto de Lebrón cuando su pareja gana el partido: **S, S, W, D, J, K**.
+Hay ocho segundos para iniciar y completar la secuencia; las seis pulsaciones deben
+entrar en 3,2 segundos, sin pausas de más de 0,9 segundos entre ellas.
+Respeta el remapeo. En mando: cruceta abajo, abajo, arriba, derecha, A, B.
+La animación retira la camiseta y la muestra extendida hacia los rivales, con sonido original.
+
+- `SIGNATURE-V7.md`: activación, límites y pruebas.
+- `RENDERER-V7.md`: animación y referencia visual.
+- `PADEL-REVIEW-V7.md`: revisión independiente.
