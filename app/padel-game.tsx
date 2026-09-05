@@ -136,6 +136,11 @@ export default function PadelGame() {
   const [mode, setMode] = useState<Mode>('partido');
   const [shot, setShot] = useState<Shot>('plano');
   const [power, setPower] = useState(0);
+  const [waitWall, setWaitWall] = useState(false);
+  const [smash, setSmash] = useState<'retorno' | 'por3' | 'por4'>('retorno');
+  const [drill, setDrill] = useState<
+    'libre' | 'pared' | 'doble-pared' | 'remate'
+  >('libre');
   const [muted, setMuted] = useState(false);
   const [round, setRound] = useState(0);
   const [tournamentOpponents, setTournamentOpponents] = useState<number[]>([
@@ -237,6 +242,7 @@ export default function PadelGame() {
             ...input.current,
             moveX: sx || touch.current.x,
             moveZ: sz || touch.current.z,
+            waitWall: input.current.waitWall || k.has('KeyB'),
             aim: k.has('KeyQ')
               ? -0.85
               : k.has('KeyE')
@@ -319,9 +325,9 @@ export default function PadelGame() {
       }
       if (screenRef.current !== 'play') return;
       keys.current.add(e.code);
-      const selected = Number(e.code.replace('Digit', ''));
-      if (e.code.startsWith('Digit') && selected >= 1 && selected <= 6) {
-        const id = SHOTS[selected - 1].id;
+      const selected = SHOTS.find((s) => e.code === `Digit${s.key}`);
+      if (selected) {
+        const id = selected.id;
         input.current.shot = id;
         setShot(id);
       }
@@ -384,10 +390,17 @@ export default function PadelGame() {
       }
     }
   }, [screen, state, mode, round]);
-  const start = (nextRound = 0) => {
+  const start = (
+    nextRound = 0,
+    chosenMode: Mode = mode,
+    chosenDrill: typeof drill = drill,
+  ) => {
+    if (!ready || error) return;
+    setMode(chosenMode);
+    setDrill(chosenDrill);
     void audio.current?.start();
     const opp =
-      mode === 'circuito'
+      chosenMode === 'circuito'
         ? nextRound === 0
           ? (() => {
               const pool = TEAMS.map((_, i) => i).filter(
@@ -411,10 +424,17 @@ export default function PadelGame() {
       difficulty: settings.difficulty,
       gamesToWin: settings.format === 'rapido' ? 3 : 6,
       setsToWin: settings.format === 'partido' ? 2 : 1,
-      training: mode === 'entrenamiento',
+      training: chosenMode === 'entrenamiento',
+      drill: chosenDrill,
     });
-    input.current = { ...BASE_INPUT };
-    setShot('plano');
+    const openingShot: Shot =
+      chosenMode === 'entrenamiento' && chosenDrill === 'remate'
+        ? 'remate'
+        : 'plano';
+    input.current = { ...BASE_INPUT, shot: openingShot, smash: 'retorno' };
+    setShot(openingShot);
+    setSmash('retorno');
+    setWaitWall(false);
     setState(JSON.parse(JSON.stringify(match.current.getState())));
     setShowSettings(false);
     setShowBracket(false);
@@ -431,6 +451,24 @@ export default function PadelGame() {
   const selectShot = (id: Shot) => {
     input.current.shot = id;
     setShot(id);
+  };
+  const toggleWall = () => {
+    setWaitWall((v) => {
+      input.current.waitWall = !v;
+      return !v;
+    });
+  };
+  const chooseSmash = (value: typeof smash) => {
+    setSmash(value);
+    input.current.smash = value;
+  };
+  const quickHit = () => {
+    if (match.current?.getState().phase === 'point') match.current.nextPoint();
+    else {
+      input.current.power = 0.68;
+      input.current.hit = true;
+    }
+    void audio.current?.start();
   };
   const toggleSound = () => {
     const v = !muted;
@@ -491,7 +529,7 @@ export default function PadelGame() {
             </a>
             <div className="edition">
               <span className="status-dot" />
-              EDICIÓN JUGABLE<span className="edition-sep">/</span>01
+              EDICIÓN JUGABLE<span className="edition-sep">/</span>02
             </div>
             <button
               className="icon-button"
@@ -516,19 +554,19 @@ export default function PadelGame() {
                   {
                     id: 'partido',
                     title: 'Partido rápido',
-                    sub: 'Elegí tu pareja. Jugá ahora.',
+                    sub: 'Un clic y entrás a la pista.',
                     icon: Play,
                   },
                   {
                     id: 'circuito',
                     title: 'Torneo',
-                    sub: 'Tres rondas. Un título.',
+                    sub: 'Comenzar torneo de tres rondas.',
                     icon: Trophy,
                   },
                   {
                     id: 'entrenamiento',
                     title: 'Entrenamiento',
-                    sub: 'Encontrá tu golpe.',
+                    sub: 'Practicá pared, globo y remate.',
                     icon: Target,
                   },
                 ] as const
@@ -536,7 +574,8 @@ export default function PadelGame() {
                 <button
                   key={m.id}
                   className={`mode ${mode === m.id ? 'selected' : ''}`}
-                  onClick={() => setMode(m.id)}
+                  disabled={!ready || !!error}
+                  onClick={() => start(0, m.id)}
                 >
                   <span className="mode-number">0{i + 1}</span>
                   <span>
@@ -672,7 +711,7 @@ export default function PadelGame() {
               <div className="score-foot">
                 <span>
                   {mode === 'entrenamiento'
-                    ? 'PRÁCTICA LIBRE'
+                    ? `PRÁCTICA · ${{ libre: 'PELOTEO', pared: 'VIDRIO', 'doble-pared': 'DOBLE PARED', remate: 'REMATE' }[drill]}`
                     : state.score.tieBreak
                       ? 'TIE-BREAK'
                       : state.score.starPoint
@@ -742,22 +781,77 @@ export default function PadelGame() {
                   role="status"
                 >
                   <small>
-                    {state.phase === 'serve' ? 'AL SERVICIO' : 'PUNTO'}
+                    {state.phase === 'serve'
+                      ? mode === 'entrenamiento' && drill !== 'libre'
+                        ? 'LANZAMIENTO'
+                        : 'AL SERVICIO'
+                      : 'PUNTO'}
                   </small>
                   <strong>{state.message}</strong>
                   <span>
                     {state.phase === 'serve'
                       ? state.players[state.server]?.team === 0
-                        ? 'Mantené y soltá ESPACIO para sacar'
+                        ? 'Hacé clic en SACAR o mantené y soltá ESPACIO'
                         : 'Prepará la devolución'
                       : 'Próximo punto en unos segundos · ESPACIO para continuar'}
                   </span>
+                  {state.phase === 'serve' &&
+                    state.players[state.server]?.team === 0 && (
+                      <button className="serve-button" onClick={quickHit}>
+                        SACAR <Play size={15} />
+                      </button>
+                    )}
+                </div>
+              )}
+              {state.needsReceivingSide && (
+                <div
+                  className="receiving-choice"
+                  role="group"
+                  aria-label="Lado de recepción en Star Point"
+                >
+                  <strong>Star Point · Elegí dónde recibir</strong>
+                  <button
+                    onClick={() => match.current?.chooseReceivingSide(-1)}
+                  >
+                    Izquierda
+                  </button>
+                  <button onClick={() => match.current?.chooseReceivingSide(1)}>
+                    Derecha
+                  </button>
                 </div>
               )}
               <div className="player-label">
                 <span className="status-dot" />
                 {playerTeam.players[state.controlled % 2]}
                 <small>VOS</small>
+              </div>
+              {mode === 'entrenamiento' && (
+                <div
+                  className="training-drills"
+                  role="group"
+                  aria-label="Ejercicio de pádel"
+                >
+                  <span>EJERCICIO</span>
+                  {(
+                    [
+                      { id: 'libre', name: 'Peloteo' },
+                      { id: 'pared', name: 'Vidrio' },
+                      { id: 'doble-pared', name: 'Doble pared' },
+                      { id: 'remate', name: 'Remate' },
+                    ] as const
+                  ).map((d) => (
+                    <button
+                      key={d.id}
+                      className={drill === d.id ? 'active' : ''}
+                      onClick={() => start(0, 'entrenamiento', d.id)}
+                    >
+                      {d.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="tactical-hint" role="status">
+                {state.tacticalHint}
               </div>
               <div className="shot-bar">
                 <div className="shot-title">
@@ -771,7 +865,7 @@ export default function PadelGame() {
                   <span>
                     {state.phase === 'rally'
                       ? SHOTS.find((s) => s.id === state.lastShot)?.name
-                      : '1 — 6'}
+                      : '1 — 9 / 0'}
                   </span>
                 </div>
                 <div className="shots">
@@ -786,6 +880,60 @@ export default function PadelGame() {
                       <span>{s.name}</span>
                     </button>
                   ))}
+                </div>
+                <div className="padel-actions">
+                  <button
+                    aria-pressed={waitWall}
+                    className={waitWall ? 'active' : ''}
+                    onClick={toggleWall}
+                  >
+                    <kbd>B</kbd> Esperar vidrio
+                  </button>
+                  {shot === 'remate' ? (
+                    <div
+                      className="smash-options"
+                      role="group"
+                      aria-label="Tipo de remate"
+                    >
+                      {(
+                        [
+                          { id: 'retorno', name: 'Traérmela' },
+                          { id: 'por3', name: 'Por 3' },
+                          { id: 'por4', name: 'Por 4' },
+                        ] as const
+                      ).map((s) => (
+                        <button
+                          key={s.id}
+                          aria-pressed={smash === s.id}
+                          className={smash === s.id ? 'active' : ''}
+                          onClick={() => chooseSmash(s.id)}
+                        >
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="selected-shot-tip">
+                      {SHOTS.find((s) => s.id === shot)?.tip}
+                    </span>
+                  )}
+                  <button
+                    className="quick-hit"
+                    disabled={
+                      state.phase === 'serve' &&
+                      state.players[state.server]?.team !== 0
+                    }
+                    onClick={quickHit}
+                  >
+                    {state.phase === 'point'
+                      ? 'CONTINUAR'
+                      : state.phase === 'serve'
+                        ? state.players[state.server]?.team === 0
+                          ? 'SACAR'
+                          : 'PREPARATE'
+                        : 'GOLPEAR'}{' '}
+                    <Play size={12} />
+                  </button>
                 </div>
                 <div className="power-row">
                   <span>
@@ -1035,6 +1183,13 @@ export default function PadelGame() {
                   <kbd>Q / E</kbd> dirigí a izquierda o derecha.
                 </p>
                 <p>
+                  <kbd>B</kbd> dejá pasar la bola al vidrio. Soltá para devolver
+                  tras el rebote.
+                </p>
+                <p>
+                  El botón GOLPEAR también juega la pelota con potencia media.
+                </p>
+                <p>
                   <kbd>TAB</kbd> cambiá de jugador. Tu compañero usa IA.
                 </p>
                 <p>
@@ -1054,12 +1209,33 @@ export default function PadelGame() {
                   Star Point: después de dos ventajas, un punto decide el juego.
                 </p>
                 <p>
-                  La malla después del saque es falta. Una salida por tres
-                  metros gana el punto.
+                  La malla después del saque es falta. El vidrio después del
+                  pique es válido.
+                </p>
+                <h3>Jugá como en pádel</h3>
+                <p>
+                  Defendé con la pared. Un globo profundo permite que tu pareja
+                  suba a la red.
+                </p>
+                <p>
+                  La bandeja conserva la red; la víbora busca un rebote bajo y
+                  lateral.
+                </p>
+                <p>
+                  Elegí Remate y Traérmela: el pique y el vidrio pueden
+                  devolverla a tu campo.
+                </p>
+                <p>
+                  Ese regreso sigue en juego: el rival puede alcanzarlo sobre la
+                  red sin tocarla.
+                </p>
+                <p>
+                  Por tres y por cuatro exigen altura, posición y potencia. La
+                  recuperación exterior queda pendiente.
                 </p>
               </div>
               <div>
-                <h3>Seis formas de resolver</h3>
+                <h3>Diez golpes de pádel</h3>
                 {SHOTS.map((s) => (
                   <div className="help-shot" key={s.id}>
                     <kbd>{s.key}</kbd>

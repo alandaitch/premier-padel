@@ -17,6 +17,33 @@ type Rig = {
   racket: THREE.Group;
   shadow: THREE.Mesh;
   ring: THREE.Mesh;
+  gaitPhase: number;
+};
+
+type ContactRecord = {
+  x: number;
+  y: number;
+  z: number;
+  time: number;
+  playerId: number;
+  shot: string;
+};
+type BounceRecord = {
+  x: number;
+  y: number;
+  z: number;
+  time: number;
+  surface: 'suelo' | 'vidrio' | 'malla' | 'red';
+};
+type TacticalView = GameState & {
+  contactPoint?: ContactRecord | null;
+  lastBounce?: BounceRecord | null;
+  lastHitterId?: number;
+};
+type ImpactPulse = {
+  mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  started: number;
+  wall: boolean;
 };
 
 const TAU = Math.PI * 2;
@@ -34,6 +61,13 @@ export class PadelRenderer {
   private landing: THREE.Mesh;
   private trail: THREE.Line;
   private trailHistory: THREE.Vector3[] = [];
+  private impactPulses: ImpactPulse[] = [];
+  private lastBounceKey = '';
+  private lastSceneTime = -1;
+  private lastPhase = '';
+  private armTarget = new THREE.Vector3();
+  private armDirection = new THREE.Vector3();
+  private contactDirection = new THREE.Vector3();
   private cameraMode: CameraMode = 'tv';
   private cameraTarget = new THREE.Vector3(0, 0.55, -0.25);
   private cameraPosition = new THREE.Vector3(0, 15, 21);
@@ -105,7 +139,12 @@ export class PadelRenderer {
     for (let i = 0; i < 4; i++) this.rigs.push(this.makePlayer(i));
     this.ball = new THREE.Mesh(
       new THREE.SphereGeometry(0.078, 18, 14),
-      new THREE.MeshStandardMaterial({ color: 0xdfff34, roughness: 0.98 }),
+      new THREE.MeshStandardMaterial({
+        color: 0xe1ff3d,
+        emissive: 0xa9c91c,
+        emissiveIntensity: 0.17,
+        roughness: 0.98,
+      }),
     );
     this.ball.castShadow = true;
     // Two curved seams remain visible in close view.
@@ -134,7 +173,7 @@ export class PadelRenderer {
     const trailGeometry = new THREE.BufferGeometry();
     trailGeometry.setAttribute(
       'position',
-      new THREE.Float32BufferAttribute(new Float32Array(12 * 3), 3),
+      new THREE.Float32BufferAttribute(new Float32Array(20 * 3), 3),
     );
     this.trail = new THREE.Line(
       trailGeometry,
@@ -147,6 +186,21 @@ export class PadelRenderer {
     );
     this.trail.frustumCulled = false;
     this.scene.add(this.trail);
+    for (let i = 0; i < 6; i++) {
+      const mesh = new THREE.Mesh(
+        new THREE.RingGeometry(0.09, 0.12, 40),
+        new THREE.MeshBasicMaterial({
+          color: 0xdbf7ce,
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        }),
+      );
+      mesh.visible = false;
+      this.scene.add(mesh);
+      this.impactPulses.push({ mesh, started: -10, wall: false });
+    }
     this.buildVenueDecorations();
     this.setVenue(options?.venue ?? 'madrid');
     this.camera.position.copy(this.cameraPosition);
@@ -1141,6 +1195,7 @@ export class PadelRenderer {
       racket,
       shadow,
       ring,
+      gaitPhase: index * 1.7,
     };
   }
 
@@ -1407,101 +1462,231 @@ export class PadelRenderer {
     if (this.disposed) return;
     this.clock += Math.min(dt, 0.05);
     const time = Number.isFinite(state.time) ? state.time : this.clock;
+    const tactical = state as TacticalView;
+    const contact = tactical.contactPoint;
+    if (
+      time < this.lastSceneTime ||
+      (state.phase === 'serve' && this.lastPhase !== 'serve')
+    ) {
+      this.trailHistory.length = 0;
+      this.lastBounceKey = '';
+      for (const pulse of this.impactPulses) pulse.started = -10;
+    }
+    this.lastSceneTime = time;
+    this.lastPhase = state.phase;
+    if (state.phase !== 'rally') this.trailHistory.length = 0;
     for (let i = 0; i < this.rigs.length; i++) {
       const player = state.players[i];
       if (!player) continue;
       const rig = this.rigs[i];
+      const action = player as typeof player & {
+        preparation?: number;
+        movementIntent?: string;
+        reachAcross?: boolean;
+      };
+      const shot = String(player.shot);
+      const age = contact?.playerId === player.id ? time - contact.time : 100;
+      const hasContact = age >= 0 && age < 0.42;
+      const contactShot = hasContact ? contact!.shot : shot;
+      const overhead = ['remate', 'bandeja', 'vibora', 'bajada'].includes(
+        contactShot,
+      );
+      const smash = contactShot === 'remate';
+      const defendingWall =
+        action.movementIntent === 'giro' || action.movementIntent === 'pared';
       const speed = Math.hypot(player.vx || 0, player.vz || 0);
       const stride = Math.min(speed / 4.0, 1);
-      const cycle = time * (9.5 + speed * 0.8) + i * 1.7;
-      const step = Math.sin(cycle) * stride;
-      const bounce = Math.abs(Math.cos(cycle)) * 0.035 * stride;
+      // The phase integrates displacement: changing speed does not pop the feet between poses.
+      rig.gaitPhase +=
+        dt * (speed > 0.1 ? 7.0 + speed * (defendingWall ? 2.0 : 1.45) : 1.5);
+      const step = Math.sin(rig.gaitPhase) * stride;
+      const bounce = Math.abs(Math.cos(rig.gaitPhase)) * 0.026 * stride;
       const swing = clamp(player.swing || 0, 0, 1);
-      const phase = (1 - swing) * Math.PI;
-      const overhead =
-        player.shot === 'remate' ||
-        player.shot === 'bandeja' ||
-        player.shot === 'vibora';
-      rig.root.position.set(player.x, 0, player.z);
-      const defaultFacing = player.z > 0 ? 0 : Math.PI;
-      let facing = Number.isFinite(player.facing)
+      const follow = hasContact ? clamp(age / 0.36, 0, 1) : 1 - swing;
+      const ballDistance = Math.hypot(
+        state.ball.x - player.x,
+        state.ball.z - player.z,
+      );
+      const incoming = player.team === state.incomingTeam;
+      const preparation = clamp(
+        action.preparation ?? (incoming ? 1 - ballDistance / 4 : 0),
+        0,
+        1,
+      );
+      const highPreparation = preparation * (state.ball.y > 1.8 ? 1 : 0);
+      const lowContact = hasContact
+        ? clamp((0.95 - contact!.y) / 2.3, 0, 0.32)
+        : 0;
+      const crouch = Math.max(
+        lowContact,
+        defendingWall ? 0.065 : preparation * 0.045,
+      );
+      const contactFade = hasContact
+        ? 1 - THREE.MathUtils.smoothstep(age, 0.1, 0.42)
+        : 0;
+      const lunge = hasContact
+        ? clamp(
+            Math.hypot(contact!.x - player.x, contact!.z - player.z) - 0.8,
+            0,
+            0.42,
+          ) * contactFade
+        : 0;
+      this.contactDirection
+        .set(
+          hasContact ? contact!.x - player.x : 0,
+          0,
+          hasContact ? contact!.z - player.z : 0,
+        )
+        .normalize();
+      const visualX = player.x + this.contactDirection.x * lunge;
+      const visualZ = player.z + this.contactDirection.z * lunge;
+      // A legal over-net reach moves the racket only. The player's feet stay on their side.
+      const ownSideZ =
+        player.team === 0 ? Math.max(0.24, visualZ) : Math.min(-0.24, visualZ);
+      rig.root.position.set(visualX, 0, ownSideZ);
+      const defaultFacing = player.team === 0 ? 0 : Math.PI;
+      const facing = Number.isFinite(player.facing)
         ? player.facing
         : defaultFacing;
-      if (!Number.isFinite(facing)) facing = defaultFacing;
       let delta = ((facing - rig.root.rotation.y + Math.PI) % TAU) - Math.PI;
       if (delta < -Math.PI) delta += TAU;
-      rig.root.rotation.y += delta * Math.min(1, dt * 12);
-      rig.body.position.y =
-        0.9 +
-        bounce +
-        (swing > 0.1 && player.shot === 'remate' ? Math.sin(phase) * 0.2 : 0);
-      rig.body.rotation.set(
-        -stride * 0.05 - 0.015,
-        Math.sin(phase) * swing * (overhead ? -0.28 : -0.6),
-        -step * 0.035,
+      rig.root.rotation.y +=
+        delta * Math.min(1, dt * (defendingWall ? 15 : 12));
+      // High smash: load, jump at contact, land on bent knees, recover toward the pair.
+      const jumpHeight =
+        hasContact && overhead
+          ? clamp(contact!.y - (smash ? 2.3 : 2.43), smash ? 0.08 : 0, 0.58) *
+            Math.max(0, 1 - (age / 0.32) ** 2)
+          : 0;
+      const landingLoad =
+        hasContact && smash
+          ? Math.sin(clamp((age - 0.25) / 0.17, 0, 1) * Math.PI) * 0.09
+          : 0;
+      rig.body.position.set(
+        0,
+        0.9 + bounce + jumpHeight - crouch - landingLoad,
+        0,
       );
-      rig.leftLeg.rotation.set(step * 0.6 + 0.07, 0, -0.025 - stride * 0.045);
-      rig.rightLeg.rotation.set(-step * 0.6 + 0.07, 0, 0.025 + stride * 0.045);
-      rig.leftKnee.rotation.x = -Math.max(0, -step) * 0.83 - 0.1;
-      rig.rightKnee.rotation.x = -Math.max(0, step) * 0.83 - 0.1;
-      // Ready stance, relaxed elbows, and counter-swing while recovering position.
-      rig.leftArm.rotation.set(0.18 - step * 0.36, 0, -0.15);
-      rig.rightArm.rotation.set(0.32 + step * 0.31, -0.12, 0.17);
-      rig.leftElbow.rotation.set(0.45, 0, 0);
-      rig.rightElbow.rotation.set(0.68, 0, 0);
-      rig.racket.rotation.set(Math.PI + 0.18, -0.1, -0.12);
-      if (swing > 0.01) {
-        const force = Math.sin(phase);
-        if (overhead) {
-          rig.rightArm.rotation.x = 2.65 - (1 - swing) * 2.2;
-          rig.rightArm.rotation.z =
-            0.36 + (player.shot === 'vibora' ? 0.52 : 0.08);
-          rig.rightElbow.rotation.x = 0.65 - force * 0.65;
-          rig.leftArm.rotation.x = 1.15 * swing;
-          rig.leftArm.rotation.z = -0.45;
-          rig.racket.rotation.x = Math.PI - 0.35;
-          rig.head.rotation.x = 0.18 * swing;
-        } else if (player.shot === 'globo') {
-          rig.rightArm.rotation.x = 0.05 + force * 1.1;
-          rig.rightArm.rotation.z = 0.35;
-          rig.rightElbow.rotation.x = 0.15 + force * 0.4;
-          rig.racket.rotation.z = -0.4;
-        } else if (player.shot === 'dejada') {
-          rig.rightArm.rotation.x = 0.65 + force * 0.4;
-          rig.rightArm.rotation.z = 0.2;
-          rig.rightElbow.rotation.x = 0.35;
-          rig.body.rotation.x = -0.12;
-        } else {
-          rig.rightArm.rotation.x = 0.36 + force * 0.7;
-          rig.rightArm.rotation.y = -1.25 * swing + 0.8 * (1 - swing);
-          rig.rightArm.rotation.z = 0.75 - force * 0.35;
-          rig.rightElbow.rotation.x = 0.48 - force * 0.25;
-          rig.leftArm.rotation.z = -0.52;
-          rig.racket.rotation.y = -0.7 * swing;
-        }
-      } else {
-        rig.head.rotation.x = THREE.MathUtils.clamp(
-          (state.ball.y - 1.8) * 0.025,
-          -0.07,
-          0.2,
-        );
+      rig.body.rotation.set(
+        -stride * 0.05 - 0.015 - crouch * 0.4,
+        hasContact
+          ? Math.sin(follow * Math.PI) * (overhead ? -0.42 : -0.25)
+          : highPreparation * -0.15,
+        -step * 0.025,
+      );
+      const shortStep = defendingWall ? 0.68 : 1;
+      rig.leftLeg.rotation.set(
+        step * 0.6 * shortStep + 0.07 + crouch * 3.0,
+        0,
+        -0.04 - stride * 0.04,
+      );
+      rig.rightLeg.rotation.set(
+        -step * 0.6 * shortStep + 0.07 + crouch * 3.0,
+        0,
+        0.04 + stride * 0.04,
+      );
+      rig.leftKnee.rotation.x = -Math.max(0, -step) * 0.83 - 0.1 - crouch * 6.0;
+      rig.rightKnee.rotation.x = -Math.max(0, step) * 0.83 - 0.1 - crouch * 6.0;
+      if (hasContact && overhead) {
+        rig.body.rotation.x += 0.1 * (1 - follow) - 0.19 * follow;
+        rig.leftLeg.rotation.x += 0.16 * contactFade;
+        rig.rightLeg.rotation.x -= 0.1 * contactFade;
+        rig.leftKnee.rotation.x -= jumpHeight * 0.6 + landingLoad * 3;
+        rig.rightKnee.rotation.x -= jumpHeight * 1.1 + landingLoad * 3;
       }
-      // Padel service is visibly underhand: release, floor bounce, below-waist sweep.
-      if (
+      // Both hands are forward in a compact ready stance; net play uses a shorter swing.
+      rig.leftArm.rotation.set(
+        0.28 - step * 0.27 + preparation * 0.22,
+        0,
+        -0.16,
+      );
+      rig.rightArm.rotation.set(
+        0.38 + step * 0.23 + preparation * 0.32,
+        -0.1,
+        0.2,
+      );
+      rig.leftElbow.rotation.set(0.55 + preparation * 0.25, 0, 0);
+      rig.rightElbow.rotation.set(0.6 + preparation * 0.15, 0, 0);
+      rig.racket.rotation.set(Math.PI + 0.12, -0.1, -0.12);
+      rig.head.rotation.x = clamp((state.ball.y - 1.8) * 0.055, -0.15, 0.3);
+      if (highPreparation > 0.05 && !hasContact) {
+        rig.rightArm.rotation.x = 0.6 + highPreparation * 1.6;
+        rig.rightArm.rotation.z = 0.25 + highPreparation * 0.25;
+        rig.rightElbow.rotation.x = 0.8;
+        rig.leftArm.rotation.x = highPreparation * 1.5;
+        rig.leftArm.rotation.z = -0.28;
+        rig.body.rotation.x += highPreparation * 0.1;
+      }
+      if (swing > 0.01 || hasContact) {
+        const accent = Math.sin(follow * Math.PI);
+        if (overhead) {
+          rig.rightArm.rotation.x = 2.6 - follow * 2.0;
+          rig.rightArm.rotation.z = contactShot === 'vibora' ? 0.72 : 0.32;
+          rig.rightElbow.rotation.x = 0.5 - accent * 0.4;
+          rig.leftArm.rotation.x = 1.45 * (1 - follow);
+          rig.leftArm.rotation.z = -0.4;
+          rig.racket.rotation.x = Math.PI - 0.2;
+        } else if (contactShot === 'globo' || contactShot === 'contrapared') {
+          rig.rightArm.rotation.x = 0.1 + accent * 1.0;
+          rig.rightArm.rotation.z = 0.3;
+          rig.rightElbow.rotation.x = 0.15 + accent * 0.3;
+        } else if (['dejada', 'chiquita', 'volea'].includes(contactShot)) {
+          rig.rightArm.rotation.x = 0.65 + accent * 0.28;
+          rig.rightArm.rotation.z = 0.22;
+          rig.rightElbow.rotation.x = 0.35;
+          rig.leftArm.rotation.x = 0.65;
+          rig.body.rotation.x -= contactShot === 'chiquita' ? 0.12 : 0.04;
+        } else {
+          rig.rightArm.rotation.x = 0.4 + accent * 0.65;
+          rig.rightArm.rotation.y = -0.75 + follow * 1.1;
+          rig.rightArm.rotation.z = 0.42;
+          rig.rightElbow.rotation.x = 0.36;
+          rig.leftArm.rotation.z = -0.4;
+        }
+      }
+      const serving =
         i === state.server &&
-        (state.phase === 'serve' || (state.rally === 1 && swing > 0.05))
-      ) {
+        (state.phase === 'serve' || (state.rally === 1 && swing > 0.05));
+      if (serving) {
         const progress =
           state.phase === 'serve' ? state.serviceMotion : 1 + (1 - swing) * 0.5;
         rig.body.rotation.x = -0.08;
         rig.leftArm.rotation.x = progress < 0.55 ? 0.68 : 0.22;
         rig.leftElbow.rotation.x = 0.23;
-        rig.rightArm.rotation.x =
-          -0.38 + clamp((progress - 0.55) / 0.7, 0, 1) * 1.0;
+        rig.rightArm.rotation.x = -0.38 + clamp((progress - 0.55) / 0.7, 0, 1);
         rig.rightArm.rotation.y = -0.12;
         rig.rightArm.rotation.z = 0.25;
         rig.rightElbow.rotation.x = 0.1;
         rig.racket.rotation.set(Math.PI + 0.2, 0, -0.2);
+      }
+      // The procedural stroke is only the preparation/recovery pose. At impact the
+      // articulated arm is solved toward the physics contact, never the reverse.
+      if (hasContact) {
+        this.armTarget.set(contact!.x, contact!.y, contact!.z);
+        const outgoing = this.armDirection
+          .set(state.ball.vx, 0, state.ball.vz)
+          .normalize();
+        const travel = THREE.MathUtils.smoothstep(age, 0.035, 0.3);
+        this.armTarget.addScaledVector(
+          outgoing,
+          travel * (overhead ? 0.22 : 0.15),
+        );
+        this.armTarget.y +=
+          travel * (overhead ? -0.38 : contactShot === 'globo' ? 0.2 : 0.025);
+        const ikWeight = 1 - THREE.MathUtils.smoothstep(age, 0.13, 0.42);
+        this.anchorRacket(rig, this.armTarget, ikWeight);
+      } else if (
+        preparation > 0.15 &&
+        !serving &&
+        ballDistance < 2 &&
+        state.ball.y < 3.2
+      ) {
+        this.armTarget.set(
+          state.ball.x,
+          clamp(state.ball.y, 0.4, 2.65),
+          state.ball.z,
+        );
+        this.anchorRacket(rig, this.armTarget, preparation * 0.65);
       }
       this.lookDirection.set(
         state.ball.x - player.x,
@@ -1511,11 +1696,13 @@ export class PadelRenderer {
       const targetHeadAngle =
         Math.atan2(-this.lookDirection.x, -this.lookDirection.z) -
         rig.root.rotation.y;
-      rig.head.rotation.y = Math.sin(targetHeadAngle) * 0.4;
-      rig.shadow.position.set(player.x, 0.033, player.z);
-      rig.shadow.scale.set(1, 1.05, 1);
+      rig.head.rotation.y = Math.sin(targetHeadAngle) * 0.48;
+      rig.shadow.position.set(rig.root.position.x, 0.033, rig.root.position.z);
+      rig.shadow.scale.set(1 + jumpHeight * 0.4, 1.05 + jumpHeight * 0.5, 1);
+      (rig.shadow.material as THREE.MeshBasicMaterial).opacity =
+        0.64 - jumpHeight * 0.3;
       rig.ring.visible = i === state.controlled;
-      rig.ring.position.set(player.x, 0.037, player.z);
+      rig.ring.position.set(rig.root.position.x, 0.037, rig.root.position.z);
       (rig.ring.material as THREE.MeshBasicMaterial).opacity =
         0.7 + Math.sin(time * 3) * 0.1;
     }
@@ -1523,21 +1710,20 @@ export class PadelRenderer {
     this.ball.position.set(ball.x, Math.max(0.075, ball.y), ball.z);
     this.ball.rotation.x += dt * (ball.vz || 0) * 2;
     this.ball.rotation.z -= dt * (ball.vx || 0) * 2;
-    // Slight visual enlargement keeps the physics ball readable from the broadcast camera.
-    this.ball.scale.setScalar(this.cameraMode === 'cenital' ? 1.18 : 1);
+    this.ball.scale.setScalar(this.cameraMode === 'cenital' ? 1.24 : 1.08);
     this.ballShadow.position.set(ball.x, 0.036, ball.z);
     const shadowSize = 1 + Math.min(ball.y, 12) * 0.1;
     this.ballShadow.scale.setScalar(shadowSize);
     (this.ballShadow.material as THREE.MeshBasicMaterial).opacity = Math.max(
-      0.15,
-      0.65 - ball.y * 0.045,
+      0.18,
+      0.69 - ball.y * 0.043,
     );
+    this.updateImpacts(tactical, time);
     const airborne = state.phase === 'rally' && ball.y > 1.4;
     this.landing.visible = airborne;
     if (airborne) {
       const flight =
-        ((ball.vy || 0) +
-          Math.sqrt((ball.vy || 0) ** 2 + 2 * 9.81 * Math.max(0, ball.y))) /
+        (ball.vy + Math.sqrt(ball.vy ** 2 + 2 * 9.81 * Math.max(0, ball.y))) /
         9.81;
       const lx = ball.x + ball.vx * flight,
         lz = ball.z + ball.vz * flight;
@@ -1546,18 +1732,117 @@ export class PadelRenderer {
       this.landing.scale.setScalar(1 + 0.09 * Math.sin(time * 7));
     }
     this.trailHistory.unshift(this.ball.position.clone());
-    if (this.trailHistory.length > 12) this.trailHistory.pop();
+    if (this.trailHistory.length > 20) this.trailHistory.pop();
     const trailArray = this.trail.geometry.attributes
       .position as THREE.BufferAttribute;
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 20; i++) {
       const p = this.trailHistory[Math.min(i, this.trailHistory.length - 1)];
       trailArray.setXYZ(i, p.x, p.y, p.z);
     }
     trailArray.needsUpdate = true;
+    // This line contains observed positions only, including the real reversal at glass.
     this.trail.visible =
-      state.phase === 'rally' && Math.hypot(ball.vx, ball.vy, ball.vz) > 15;
+      state.phase === 'rally' && Math.hypot(ball.vx, ball.vy, ball.vz) > 8;
+    (this.trail.material as THREE.LineBasicMaterial).opacity =
+      tactical.lastBounce?.surface === 'vidrio' &&
+      time - tactical.lastBounce.time < 0.7
+        ? 0.48
+        : 0.31;
     this.updateCamera(ball.x, ball.z, dt);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private anchorRacket(rig: Rig, worldTarget: THREE.Vector3, weight: number) {
+    if (weight <= 0) return;
+    rig.root.updateMatrixWorld(true);
+    const target = rig.body.worldToLocal(worldTarget.clone());
+    const shoulder = rig.rightArm.position;
+    const line = target.clone().sub(shoulder);
+    const upperLength = 0.32,
+      lowerAndRacket = 0.305 + 0.38;
+    const distance = clamp(
+      line.length(),
+      Math.abs(lowerAndRacket - upperLength) + 0.002,
+      upperLength + lowerAndRacket - 0.002,
+    );
+    if (line.lengthSq() < 0.000001) return;
+    const direction = line.normalize();
+    const bend = new THREE.Vector3(1, -0.18, 0.18)
+      .addScaledVector(
+        direction,
+        -new THREE.Vector3(1, -0.18, 0.18).dot(direction),
+      )
+      .normalize();
+    if (bend.lengthSq() < 0.001)
+      bend.set(0, 0, 1).addScaledVector(direction, -direction.z).normalize();
+    const cosine = clamp(
+      (upperLength ** 2 + distance ** 2 - lowerAndRacket ** 2) /
+        (2 * upperLength * distance),
+      -1,
+      1,
+    );
+    const elbow = shoulder
+      .clone()
+      .addScaledVector(direction, cosine * upperLength)
+      .addScaledVector(bend, Math.sqrt(1 - cosine ** 2) * upperLength);
+    const actualTarget = shoulder.clone().addScaledVector(direction, distance);
+    const down = new THREE.Vector3(0, -1, 0);
+    const upperRotation = new THREE.Quaternion().setFromUnitVectors(
+      down,
+      elbow.clone().sub(shoulder).normalize(),
+    );
+    const forearmDirection = actualTarget
+      .sub(elbow)
+      .normalize()
+      .applyQuaternion(upperRotation.clone().invert());
+    const lowerRotation = new THREE.Quaternion().setFromUnitVectors(
+      down,
+      forearmDirection,
+    );
+    rig.rightArm.quaternion.slerp(upperRotation, weight);
+    rig.rightElbow.quaternion.slerp(lowerRotation, weight);
+    // Center of the pala extends .38m beyond its grip, collinear with the forearm.
+    rig.racket.quaternion.slerp(
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0)),
+      weight,
+    );
+  }
+
+  private updateImpacts(state: TacticalView, time: number) {
+    const impact = state.lastBounce;
+    if (impact) {
+      const key = `${impact.time}:${impact.surface}:${impact.x}:${impact.z}`;
+      if (key !== this.lastBounceKey && time - impact.time < 0.15) {
+        this.lastBounceKey = key;
+        const pulse = this.impactPulses.reduce((oldest, candidate) =>
+          candidate.started < oldest.started ? candidate : oldest,
+        );
+        pulse.started = impact.time;
+        pulse.wall = impact.surface !== 'suelo';
+        pulse.mesh.position.set(impact.x, impact.y, impact.z);
+        pulse.mesh.rotation.set(0, 0, 0);
+        pulse.mesh.material.color.set(pulse.wall ? 0xb9e7ec : 0xe1f5b7);
+        if (impact.surface === 'suelo') {
+          pulse.mesh.position.y = 0.045;
+          pulse.mesh.rotation.x = -Math.PI / 2;
+        } else if (impact.surface === 'red') {
+          pulse.mesh.position.z = impact.z >= 0 ? 0.05 : -0.05;
+        } else if (Math.abs(impact.x) > 4.8) {
+          pulse.mesh.position.x = Math.sign(impact.x) * 4.965;
+          pulse.mesh.rotation.y = Math.PI / 2;
+        } else {
+          pulse.mesh.position.z = Math.sign(impact.z) * 9.965;
+        }
+      }
+    }
+    for (const pulse of this.impactPulses) {
+      const progress = (time - pulse.started) / (pulse.wall ? 0.48 : 0.38);
+      pulse.mesh.visible = progress >= 0 && progress < 1;
+      if (!pulse.mesh.visible) continue;
+      pulse.mesh.scale.setScalar(1 + progress * (pulse.wall ? 4.0 : 3.0));
+      pulse.mesh.material.opacity =
+        (pulse.wall ? 0.58 : 0.45) * (1 - progress) ** 2;
+    }
   }
 
   private updateCamera(ballX: number, ballZ: number, dt: number) {

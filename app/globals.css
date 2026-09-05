@@ -1709,3 +1709,335 @@ kbd {
 div:has(> [data-slot='select-content'].padel-select) {
   z-index: 80 !important;
 }
+/* Padel-specific controls remain below the playable court. */
+.screen-play .arena,
+.screen-pause .arena,
+.screen-help .arena,
+.screen-result .arena {
+  bottom: 184px;
+}
+.shot-bar {
+  width: 820px;
+  bottom: 28px;
+}
+.shots {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+}
+.shots button {
+  flex-direction: row;
+  justify-content: flex-start;
+  padding: 6px 10px;
+  gap: 9px;
+  min-height: 29px;
+  font-size: 12px;
+}
+.shots kbd {
+  width: 12px;
+}
+.padel-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 9px 8px;
+  min-height: 36px;
+}
+.padel-actions > button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #ffffff0c;
+  border: 1px solid #ffffff22;
+  border-radius: 2px;
+  padding: 6px 9px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.padel-actions > button.active {
+  color: var(--lime);
+  border-color: #c7f46577;
+}
+.padel-actions .quick-hit {
+  margin-left: auto;
+  color: #112519;
+  background: var(--lime);
+  border-color: var(--lime);
+  font-weight: 600;
+}
+.selected-shot-tip {
+  font-size: 10px;
+  color: #a7bdc7;
+  max-width: 440px;
+}
+.smash-options {
+  display: flex;
+  gap: 4px;
+}
+.smash-options button {
+  font-size: 11px;
+  background: #ffffff09;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+}
+.smash-options button.active {
+  color: var(--lime);
+  border-color: var(--lime);
+}
+.tactical-hint {
+  position: absolute;
+  bottom: 222px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 680px;
+  font-size: 12px;
+  color: #d6e8d2;
+  text-shadow: 0 1px 5px #000;
+  background: #071a25b5;
+  padding: 7px 12px;
+  border-radius: 3px;
+  text-align: center;
+  pointer-events: none;
+}
+.player-label,
+.rally-info {
+  bottom: 195px;
+}
+.point-banner {
+  left: 28px;
+  top: 180px;
+  bottom: auto;
+  transform: none;
+  width: 272px;
+  min-width: 0;
+  padding: 13px 16px;
+  text-align: left;
+  pointer-events: auto;
+}
+.point-banner strong {
+  font-size: 15px;
+  line-height: 1.4;
+}
+.point-banner > span {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.serve-button {
+  background: var(--lime);
+  color: #10251b;
+  padding: 9px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 11px;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+.training-drills {
+  position: absolute;
+  top: 169px;
+  left: 28px;
+  width: 280px;
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  background: #0b2233cc;
+  border: 1px solid #ffffff22;
+  padding: 10px;
+}
+.training-drills > span {
+  width: 100%;
+  font-size: 9px;
+  letter-spacing: 1.4px;
+  color: #a9bfcc;
+  margin-bottom: 4px;
+}
+.training-drills button {
+  padding: 7px 9px;
+  background: #ffffff0b;
+  border: 1px solid #ffffff22;
+  border-radius: 2px;
+  font-size: 11px;
+}
+.training-drills button.active {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+.screen-play:has(.training-drills) .point-banner {
+  top: 272px;
+}
+.mode:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+@media (max-width: 1000px) and (min-width: 601px) {
+  .point-banner {
+    top: 168px;
+    width: 215px;
+    left: 18px;
+  }
+  .training-drills {
+    left: 18px;
+    width: 215px;
+  }
+  .screen-play:has(.training-drills) .point-banner {
+    top: 278px;
+  }
+  .tactical-hint {
+    max-width: 55%;
+    font-size: 10px;
+  }
+  .selected-shot-tip {
+    font-size: 9px;
+  }
+}
+@media (max-width: 600px) {
+  .screen-play .arena,
+  .screen-pause .arena,
+  .screen-help .arena,
+  .screen-result .arena {
+    bottom: 262px;
+  }
+  .shot-bar {
+    bottom: 10px;
+  }
+  .shots button {
+    min-height: 31px;
+    padding: 5px 3px;
+    gap: 3px;
+    justify-content: center;
+    font-size: 10px;
+  }
+  .shots kbd {
+    font-size: 8px;
+    width: 8px;
+  }
+  .shots {
+    gap: 3px;
+  }
+  .padel-actions {
+    gap: 5px;
+    padding: 4px 6px 7px;
+    flex-wrap: wrap;
+  }
+  .padel-actions > button {
+    font-size: 9px;
+    padding: 6px;
+  }
+  .selected-shot-tip {
+    display: none;
+  }
+  .smash-options {
+    gap: 2px;
+  }
+  .smash-options button {
+    font-size: 9px;
+    padding: 5px;
+  }
+  .padel-actions kbd {
+    display: none;
+  }
+  .touch-controls {
+    bottom: 182px;
+    left: 18px;
+    right: 18px;
+  }
+  .joystick,
+  .touch-hit {
+    width: 61px;
+    height: 61px;
+  }
+  .tactical-hint {
+    bottom: 267px;
+    max-width: calc(100% - 24px);
+    font-size: 10px;
+    padding: 5px 8px;
+  }
+  .player-label {
+    bottom: 247px;
+  }
+  .rally-info {
+    top: 123px;
+    bottom: auto;
+  }
+  .point-banner,
+  .screen-play:has(.training-drills) .point-banner {
+    top: auto;
+    bottom: 266px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 75%;
+    padding: 9px 12px;
+    text-align: center;
+  }
+  .point-banner strong {
+    font-size: 12px;
+  }
+  .point-banner > span {
+    font-size: 9px;
+  }
+  .serve-button {
+    margin-top: 7px;
+    padding: 8px 12px;
+  }
+  .point-banner ~ .tactical-hint {
+    display: none;
+  }
+  .training-drills {
+    left: 12px;
+    top: 130px;
+    width: calc(100% - 24px);
+    justify-content: center;
+    padding: 6px;
+    gap: 4px;
+  }
+  .training-drills > span {
+    display: none;
+  }
+  .training-drills button {
+    font-size: 10px;
+    padding: 5px 8px;
+  }
+  .screen-play:has(.training-drills) .rally-info {
+    display: none;
+  }
+}
+
+.receiving-choice {
+  position: absolute;
+  left: 50%;
+  top: 150px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: #102735;
+  border: 1px solid var(--lime);
+  font-size: 12px;
+}
+.receiving-choice button {
+  background: var(--lime);
+  color: #112519;
+  padding: 8px 12px;
+  font-weight: 600;
+}
+.receiving-choice strong {
+  max-width: 190px;
+}
+@media (max-width: 600px) {
+  .receiving-choice {
+    width: 94%;
+    top: 170px;
+    gap: 6px;
+    font-size: 10px;
+    padding: 10px;
+  }
+  .receiving-choice button {
+    padding: 8px;
+  }
+}

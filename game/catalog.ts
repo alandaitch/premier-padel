@@ -87,7 +87,7 @@ export const SHOTS = [
     id: 'plano',
     name: 'Plano',
     key: '1',
-    tip: 'Golpe de fondo o volea. Seguro y directo.',
+    tip: 'Derecha o revés de fondo. Armado corto, control y dirección.',
   },
   {
     id: 'globo',
@@ -109,14 +109,38 @@ export const SHOTS = [
   },
   {
     id: 'remate',
-    name: 'Remate ×3',
+    name: 'Remate',
     key: '5',
-    tip: 'Atacá una bola alta cerca de la red. Cargá potencia.',
+    tip: 'Bola alta y corta: traétela a tu campo, sacala por tres o por cuatro.',
   },
   {
     id: 'dejada',
     name: 'Dejada',
     key: '6',
     tip: 'Toque corto para atraer al rival a la red.',
+  },
+  {
+    id: 'volea',
+    name: 'Volea',
+    key: '7',
+    tip: 'Bloqueo corto antes del pique. Presioná desde la red.',
+  },
+  {
+    id: 'chiquita',
+    name: 'Chiquita',
+    key: '8',
+    tip: 'Desde el fondo, jugá suave a los pies para poder subir.',
+  },
+  {
+    id: 'bajada',
+    name: 'Bajada',
+    key: '9',
+    tip: 'Dejá el rebote alto del vidrio y atacá al salir de la pared.',
+  },
+  {
+    id: 'contrapared',
+    name: 'Contrapared',
+    key: '0',
+    tip: 'Emergencia: pegá hacia tu vidrio para que la pelota salga por arriba.',
   },
 ] as const;
