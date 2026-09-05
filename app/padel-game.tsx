@@ -486,6 +486,8 @@ export default function PadelGame() {
     let accumulator = 0;
     let publish = 0;
     let lastEvent = -1;
+    let lastMeshImpact = 0;
+    let meshMatch: PadelMatch | null = null;
     let lastPerfectContact = -1;
     let pointTimer = 0;
     let measured = 0;
@@ -825,6 +827,10 @@ export default function PadelGame() {
       if (screenRef.current === 'play' && !director.current.active)
         runIntents(combos.current.flush(now));
       const m = match.current!;
+      if (m !== meshMatch) {
+        meshMatch = m;
+        lastMeshImpact = 0;
+      }
       const active =
         screenRef.current === 'play' || screenRef.current === 'menu';
       if (active) {
@@ -941,8 +947,17 @@ export default function PadelGame() {
           }
         }
       }
-      if (active && s.eventId !== lastEvent) {
+      if (active && s.meshImpact && (s.meshImpactId ?? 0) !== lastMeshImpact) {
         if (screenRef.current === 'play')
+          audio.current?.play(
+            s.meshImpact.type,
+            s.meshImpact.x,
+            s.meshImpact.power,
+          );
+        lastMeshImpact = s.meshImpactId ?? 0;
+      }
+      if (active && s.eventId !== lastEvent) {
+        if (screenRef.current === 'play' && s.eventType !== 'mesh')
           audio.current?.play(
             s.eventType,
             s.ball.x,
@@ -1348,7 +1363,7 @@ export default function PadelGame() {
             </a>
             <div className="edition">
               <span className="status-dot" />
-              EDICIÓN JUGABLE<span className="edition-sep">/</span>08
+              EDICIÓN JUGABLE<span className="edition-sep">/</span>09
             </div>
             <button
               className="icon-button"

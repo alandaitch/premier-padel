@@ -27,3 +27,9 @@ Los videos de terceros se consultan sólo como referencias, separados de las gra
 `node scripts/review-gallery.mjs` crea `outputs/evolucion.html` y su registro de integridad. Incluye todas las versiones y subcarpetas de tomas descartadas. Lee los videos, calcula tamaño/SHA256 y escribe únicamente índices HTML/JSON. No sube archivos a servicios externos.
 
 El lote V8 tiene 25 clips de golpes/paredes/escenas/táctica y 5 clips femeninos: partido, bandeja zurda, banco y dos grupos de indumentaria. Los 25 primeros se capturaron después de corregir los bancos y antes de añadir la rama visual femenina; esa rama no modifica los modelos masculinos.
+
+## Lote V9
+
+Siete clips adicionales en `outputs/revision-v9/`: estadio actual, referencia V8 congelada con la misma cámara, rescate exterior, bancos y tres impactos de malla (rebote vivo, falta directa, saque). La primera captura se conservó al cerrarse su pestaña; las seis pendientes se grabaron en el navegador integrado. Ningún archivo se sustituyó.
+
+Se verificaron dimensiones, duración, audio y decodificación completa de los siete MP4. Los 102 archivos anteriores mantienen sus SHA256 originales. La comparación de estadio usa la geometría V8 congelada del commit `bb9834adacbcadfd2ce016b2bedda0e3dbf19581`; la cámara y el estado de partido son idénticos a V9.

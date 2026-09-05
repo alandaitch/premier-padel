@@ -1,6 +1,6 @@
 # Premier Padel
 
-Juego 3D de pádel en español. Octava edición jugable, inspirada en Premier Padel.
+Juego 3D de pádel en español. Novena edición jugable, inspirada en Premier Padel.
 Implementación independiente con Three.js, React y Vinext/Vite. No modifica alandaitch.com.
 
 ## Jugar
@@ -171,3 +171,9 @@ El circuito femenino comparte reglas, controles y motor. Tiene cuatro parejas se
 El trabajo paralelo y el criterio de modelos están documentados en `EXECUTION-GRAPH.md`. Para actualizar la galería local sin modificar videos: `node scripts/review-gallery.mjs`.
 
 Validación V8: 108 pruebas aprobadas, TypeScript y build de producción aprobados. La revisión visual verifica los ocho modelos femeninos, bancos y estampados; registra límites de naturalidad y semejanza facial.
+
+## Edición 09
+
+Reja con chasquido y vibración metálica propios, separados del vidrio y sincronizados con el impacto físico. También suena cuando el contacto produce una falta. Exterior gris carbón con parches azules pequeños en las puertas; el área recuperable no cambia. Tribunas más próximas y sectores en esquinas; ambos bancos siguen en el lateral derecho.
+
+Referencias, límites y revisión: `AUDIO-V9.md`, `RENDERER-V9.md`, `REVIEW-V9.md`. Los clips nuevos se agregan a `outputs/revision-v9/` sin reemplazar tomas anteriores.

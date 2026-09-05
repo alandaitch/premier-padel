@@ -389,6 +389,98 @@ void test('glass is live after legal bounce; glass before bounce loses point', (
   assert.equal(s.pointWinner, 1);
 });
 
+void test('mesh impact survives live rebound, point and service-fault events', () => {
+  const live = new PadelMatch(),
+    liveState = live.getState(),
+    liveHarness = internal(live);
+  liveState.phase = 'rally';
+  liveHarness.bounced = true;
+  liveHarness.bounces = 1;
+  Object.assign(liveState.ball, {
+    x: 5,
+    y: 1.2,
+    z: -4,
+    vx: 9,
+    vy: 0.5,
+    vz: -1,
+  });
+  liveHarness.collisions(-4);
+  assert.equal(liveState.eventType, 'mesh');
+  assert.equal(liveState.phase, 'rally');
+  assert.deepEqual(liveState.meshImpact, {
+    id: 1,
+    type: 'mesh',
+    x: 5,
+    y: 1.2,
+    z: -4,
+    time: liveState.time,
+    normalSpeed: 9,
+    power: 0.5,
+  });
+
+  const direct = new PadelMatch(),
+    directState = direct.getState(),
+    directHarness = internal(direct);
+  directState.phase = 'rally';
+  Object.assign(directState.ball, {
+    x: 5,
+    y: 1.2,
+    z: -4,
+    vx: 12,
+    vy: 0,
+    vz: -1,
+  });
+  directHarness.collisions(-4);
+  assert.equal(directState.eventType, 'point');
+  assert.equal(directState.phase, 'point');
+  assert.equal(directState.meshImpactId, 1);
+  assert.equal(directState.meshImpact?.normalSpeed, 12);
+  assert.equal(directState.meshImpact?.power, 12 / 18);
+
+  const serve = new PadelMatch(),
+    serveState = serve.getState(),
+    serveHarness = internal(serve);
+  serveState.phase = 'rally';
+  serveHarness.serveLive = true;
+  serveHarness.bounced = true;
+  serveHarness.bounces = 1;
+  Object.assign(serveState.ball, {
+    x: -5,
+    y: 0.65,
+    z: -4,
+    vx: -6,
+    vy: 0,
+    vz: -1,
+  });
+  serveHarness.collisions(-4);
+  assert.equal(serveState.eventType, 'fault');
+  assert.equal(serveState.phase, 'serve');
+  assert.equal(serveState.serveAttempt, 2);
+  assert.equal(serveState.meshImpactId, 1);
+  assert.equal(serveState.meshImpact?.power, 1 / 3);
+
+  const exterior = new PadelMatch(),
+    exteriorState = exterior.getState(),
+    exteriorHarness = internal(exterior);
+  exteriorState.phase = 'rally';
+  exteriorState.ballOutside = true;
+  exteriorHarness.bounced = true;
+  exteriorHarness.bounces = 1;
+  Object.assign(exteriorState.ball, {
+    x: 5.02,
+    y: 1,
+    z: -4,
+    vx: -5,
+    vy: 0,
+    vz: 0,
+  });
+  exteriorHarness.collisions(-4);
+  assert.equal(exteriorState.eventType, 'point');
+  assert.equal(exteriorState.phase, 'point');
+  assert.equal(exteriorState.meshImpactId, 1);
+  assert.equal(exteriorState.meshImpact?.normalSpeed, 5);
+});
+
 void test('second ground bounce awards hitter the point', () => {
   const match = new PadelMatch();
   const s = match.getState(),

@@ -175,6 +175,98 @@ export class PadelAudio {
       };
       return;
     }
+    if (type === 'mesh') {
+      const intensity = Math.max(0.12, Math.min(1, power));
+      const crack = c.createBufferSource(),
+        crackFilter = c.createBiquadFilter();
+      crack.buffer = this.noise(0.045);
+      crackFilter.type = 'highpass';
+      crackFilter.frequency.value = 1650;
+      crackFilter.Q.value = 0.7;
+      gain.gain.setValueAtTime(0.045 + intensity * 0.075, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+      crack.connect(crackFilter).connect(gain);
+      crack.start(now);
+      crack.stop(now + 0.045);
+
+      // Short, uneven wire chatter after the initial metal snap.
+      const wire = c.createBufferSource(),
+        wireFilter = c.createBiquadFilter(),
+        wireGain = c.createGain();
+      wire.buffer = this.noise(0.24);
+      wireFilter.type = 'bandpass';
+      wireFilter.frequency.value = 1450 + intensity * 420;
+      wireFilter.Q.value = 4.2;
+      wireGain.gain.setValueAtTime(0.001, now);
+      const chatter = [0.008, 0.026, 0.051, 0.087, 0.136];
+      chatter.forEach((delay, index) => {
+        const peak =
+          (0.018 + intensity * 0.035) *
+          Math.pow(0.76, index) *
+          (0.82 + Math.random() * 0.32);
+        wireGain.gain.setValueAtTime(peak, now + delay);
+        wireGain.gain.exponentialRampToValueAtTime(
+          0.001,
+          now + delay + 0.014 + index * 0.002,
+        );
+      });
+      wire.connect(wireFilter).connect(wireGain).connect(pan);
+      wire.start(now);
+      wire.stop(now + 0.24);
+
+      // Inharmonic modes keep the reja distinct from racket, turf and glass.
+      [720, 1115, 1690].forEach((base, index) => {
+        const tone = c.createOscillator(),
+          envelope = c.createGain(),
+          delay = 0.006 + index * 0.011,
+          duration = 0.11 + index * 0.035 + intensity * 0.045,
+          frequency = base * (0.975 + Math.random() * 0.05);
+        tone.type = index === 1 ? 'triangle' : 'sine';
+        tone.frequency.setValueAtTime(frequency, now + delay);
+        tone.frequency.exponentialRampToValueAtTime(
+          frequency * (0.93 + index * 0.012),
+          now + delay + duration,
+        );
+        envelope.gain.setValueAtTime(0.001, now + delay);
+        envelope.gain.linearRampToValueAtTime(
+          (0.012 + intensity * 0.014) / (1 + index * 0.28),
+          now + delay + 0.003,
+        );
+        envelope.gain.exponentialRampToValueAtTime(
+          0.001,
+          now + delay + duration,
+        );
+        tone.connect(envelope).connect(pan);
+        tone.start(now + delay);
+        tone.stop(now + delay + duration + 0.01);
+        tone.onended = () => {
+          tone.disconnect();
+          envelope.disconnect();
+        };
+      });
+      crack.onended = () => {
+        crack.disconnect();
+        crackFilter.disconnect();
+        gain.disconnect();
+      };
+      wire.onended = () => {
+        wire.disconnect();
+        wireFilter.disconnect();
+        wireGain.disconnect();
+      };
+      const cleanup = c.createOscillator();
+      const cleanupGain = c.createGain();
+      cleanupGain.gain.value = 0;
+      cleanup.connect(cleanupGain).connect(pan);
+      cleanup.start(now);
+      cleanup.stop(now + 0.32);
+      cleanup.onended = () => {
+        cleanup.disconnect();
+        cleanupGain.disconnect();
+        pan.disconnect();
+      };
+      return;
+    }
     if (/hit|serve|shot|bounce|wall|glass|net|mesh/.test(type)) {
       const o = c.createOscillator();
       o.type = 'triangle';

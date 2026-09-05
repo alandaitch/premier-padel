@@ -497,10 +497,10 @@ export class PadelRenderer {
     const groundTexture = this.textureCanvas(
       256,
       (ctx, s) => {
-        ctx.fillStyle = '#192a38';
+        ctx.fillStyle = '#242629';
         ctx.fillRect(0, 0, s, s);
         for (let i = 0; i < 13000; i++) {
-          ctx.fillStyle = `rgba(104,125,139,${this.random() * 0.1})`;
+          ctx.fillStyle = `rgba(117,119,123,${this.random() * 0.1})`;
           ctx.fillRect(this.random() * s, this.random() * s, 1, 1);
         }
       },
@@ -650,30 +650,29 @@ export class PadelRenderer {
       }
       for (const z of [-5, 5]) this.box(0.06, 0.06, 10, black, x, 3, z);
       for (const z of [-8, 8]) this.box(0.06, 0.06, 4, black, x, 4, z);
-      // Safe external recovery area remains free of furniture and railings.
-      const exteriorMaterial = this.fieldMaterial.clone();
-      exteriorMaterial.color.setHex(0x537582);
+      // Recovery is still fully playable, but belongs to the neutral arena floor.
+      // Its dimensions are a physics allowance, never an extension of blue turf.
       const exterior = this.box(
         COURT.exteriorWidth,
         0.08,
         COURT.exteriorHalfLength * 2,
-        exteriorMaterial,
+        this.floorMaterial,
         x + (Math.sign(x) * COURT.exteriorWidth) / 2,
         -0.04,
         0,
       );
       exterior.receiveShadow = true;
-      const edge = this.material(0x54869c, 0.97);
-      for (const z of [-COURT.exteriorHalfLength, COURT.exteriorHalfLength])
-        this.box(
-          COURT.exteriorWidth,
-          0.012,
-          0.04,
-          edge,
-          x + (Math.sign(x) * COURT.exteriorWidth) / 2,
-          0.018,
-          z,
-        );
+      // A short matching apron marks the two doors, not the recovery boundary.
+      const doorwayApron = this.box(
+        0.6,
+        0.002,
+        3,
+        this.fieldMaterial,
+        x + Math.sign(x) * 0.3,
+        0.001,
+        0,
+      );
+      doorwayApron.receiveShadow = true;
     }
     // Net mesh has individual woven squares, a subtly curved tape, and side tension posts.
     const netMap = this.textureCanvas(
@@ -977,7 +976,7 @@ export class PadelRenderer {
     }[] = [];
     for (let row = 0; row < 7; row++) {
       const y = 0.25 + row * 0.52;
-      const z = -COURT.halfLength - 5.6 - row * 0.9;
+      const z = -COURT.halfLength - 3.1 - row * 0.9;
       this.box(25, 0.55 + row * 0.52, 0.89, concrete, 0, y / 2, z, this.scene);
       rows.push({ x: -11.7, y: y + 0.15, z, rot: 0, count: 38, step: 0.63 });
       for (const side of [-1, 1]) {
@@ -985,26 +984,50 @@ export class PadelRenderer {
           side *
           (COURT.halfWidth +
             COURT.exteriorWidth +
-            (side > 0 ? 3.1 : 1.6) +
+            (side > 0 ? 2.45 : 0.9) +
             row * 0.85);
         this.box(
           0.86,
           0.55 + row * 0.52,
-          24,
+          16.4,
           concrete,
           x,
           y / 2,
-          -1.1,
+          0,
           this.scene,
         );
         rows.push({
           x,
           y: y + 0.15,
-          z: -12.4,
+          z: -7.475,
           rot: (side * -Math.PI) / 2,
-          count: 35,
+          count: 24,
           step: 0.65,
         });
+        // The low corner sections tighten the bowl without occupying the
+        // full exterior recovery rectangle or the walk-around route at z=±11.35.
+        const cornerX = side * (9.7 + row * 0.85);
+        for (const end of [-1, 1]) {
+          const cornerZ = end * 9.5;
+          this.box(
+            0.86,
+            0.55 + row * 0.52,
+            2.2,
+            concrete,
+            cornerX,
+            y / 2,
+            cornerZ,
+            this.scene,
+          );
+          rows.push({
+            x: cornerX,
+            y: y + 0.15,
+            z: cornerZ - 0.65,
+            rot: (side * -Math.PI) / 2,
+            count: 3,
+            step: 0.65,
+          });
+        }
       }
     }
     const seatGeo = new THREE.BoxGeometry(0.46, 0.1, 0.43);
@@ -1259,19 +1282,19 @@ export class PadelRenderer {
     );
     for (const side of [-1, 1]) {
       const x =
-        side * (COURT.halfWidth + COURT.exteriorWidth + (side > 0 ? 2.2 : 0.9));
-      this.box(0.05, 0.05, 23, rails, x, 1.02, -1.5, this.scene);
-      for (let z = -12; z < 11; z += 2)
+        side * (COURT.halfWidth + COURT.exteriorWidth + (side > 0 ? 1.9 : 0.4));
+      this.box(0.05, 0.05, 16.3, rails, x, 1.02, 0, this.scene);
+      for (let z = -8; z <= 8; z += 2)
         this.box(0.05, 1, 0.05, rails, x, 0.5, z, this.scene);
       const panel = this.makeBanner(
         'QATAR AIRWAYS     •     Red Bull     •     Wilson     •     MONDO',
-        22,
+        16,
         0.55,
         '#0a1521',
         '#b8c8c9',
         43,
       );
-      panel.position.set(x, 0.45, -1.4);
+      panel.position.set(x, 0.45, 0);
       panel.rotation.y = x > 0 ? -Math.PI / 2 : Math.PI / 2;
       this.scene.add(panel);
     }

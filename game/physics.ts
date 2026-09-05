@@ -272,6 +272,20 @@ export interface GameState {
   lastShot: Shot;
   eventId: number;
   eventType: string;
+  /** Present on live V9 states; optional so archived V7/V8 captures still replay. */
+  meshImpactId?: number;
+  meshImpact?: {
+    id: number;
+    type: 'mesh';
+    x: number;
+    y: number;
+    z: number;
+    time: number;
+    /** Incoming speed normal to the fence, in metres per second. */
+    normalSpeed: number;
+    /** Normalized excitation used by presentation and audio. */
+    power: number;
+  } | null;
   time: number;
   serveAttempt: 1 | 2;
   incomingTeam: Team;
@@ -1114,6 +1128,8 @@ export class PadelMatch {
       lastShot: 'plano',
       eventId: 0,
       eventType: 'ready',
+      meshImpactId: 0,
+      meshImpact: null,
       time: 0,
       serveAttempt: 1,
       incomingTeam: 1,
@@ -2099,6 +2115,22 @@ export class PadelMatch {
           : 'Dejá salir la pelota del vidrio antes de pegar';
     }
   }
+  private recordMeshImpact(normalSpeed: number) {
+    const s = this.state;
+    const speed = Math.max(0, normalSpeed);
+    const id = (s.meshImpactId ?? 0) + 1;
+    s.meshImpactId = id;
+    s.meshImpact = {
+      id,
+      type: 'mesh',
+      x: s.ball.x,
+      y: s.ball.y,
+      z: s.ball.z,
+      time: s.time,
+      normalSpeed: speed,
+      power: clamp(speed / 18, 0.12, 1),
+    };
+  }
   private collisions(oldZ: number) {
     const s = this.state,
       b = s.ball;
@@ -2218,6 +2250,7 @@ export class PadelMatch {
         );
       } else {
         const mesh = Math.abs(b.z) < 6 || b.y > 3;
+        if (mesh) this.recordMeshImpact(Math.abs(b.vx));
         if (this.serveLive && this.bounced && mesh) {
           this.serveFault('Saque a la malla después del pique');
           return;
@@ -2254,6 +2287,8 @@ export class PadelMatch {
         s.ballSituation = 'vuelo';
         this.emit('outside-return', 'Devolución desde afuera · Sigue en juego');
       } else {
+        const mesh = Math.abs(b.z) < 6 || b.y > 3;
+        if (mesh) this.recordMeshImpact(Math.abs(b.vx));
         if (this.bounced)
           this.finishPoint(
             this.lastHitter,
@@ -2270,6 +2305,7 @@ export class PadelMatch {
         return;
       }
       const mesh = b.y > 3;
+      if (mesh) this.recordMeshImpact(Math.abs(b.vz));
       if (!this.bounced && sideOf(b.z) !== this.lastHitter) {
         this.failReturn('Pared de fondo antes del pique');
         return;
