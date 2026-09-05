@@ -221,7 +221,7 @@ button:hover {
 .menu-panel {
   position: absolute;
   z-index: 2;
-  top: 19%;
+  top: 12%;
   left: 5%;
   width: 355px;
   max-width: 35vw;
@@ -1082,7 +1082,7 @@ kbd {
 @media (min-width: 1600px) {
   .menu-panel {
     width: 400px;
-    top: 19%;
+    top: 12%;
   }
   h1 {
     font-size: 125px;
@@ -1102,9 +1102,9 @@ kbd {
     font-size: 72px;
   }
 }
-@media (max-height: 850px) and (min-width: 900px) {
+@media (max-height: 1000px) and (min-width: 900px) {
   .menu-panel {
-    top: 16%;
+    top: 12%;
   }
   h1 {
     font-size: 83px;
@@ -1139,7 +1139,7 @@ kbd {
     min-height: 580px;
   }
   .menu-panel {
-    top: 15%;
+    top: 12%;
     width: 330px;
   }
   h1 {
@@ -2593,21 +2593,262 @@ div:has(> [data-slot='select-content'].padel-select) {
 }
 
 /* V6: brief match scenes leave the players and coaches visible. */
-.match-scene { position: absolute; z-index: 25; bottom: 34px; left: 50%; transform: translateX(-50%); width: min(690px, calc(100% - 32px)); padding: 18px 24px; background: linear-gradient(120deg, #091a29f5, #0e2530eb); border: 1px solid #7ed7bd55; border-radius: 12px; box-shadow: 0 12px 50px #0007; color: #fff; text-align: center; }
-.match-scene small { color: #abe6cf; font-size: 10px; font-weight: 800; letter-spacing: 2px; }
-.match-scene p { font-size: clamp(14px, 2vw, 19px); line-height: 1.45; margin: 10px 0 14px; }
-.match-scene button { display: inline-flex; align-items: center; gap: 10px; border: 1px solid #ffffff35; border-radius: 6px; padding: 8px 15px; background: #ffffff0d; font-size: 12px; font-weight: 700; }
-.match-scene kbd { padding: 2px 5px; border: 1px solid #ffffff40; border-radius: 3px; font-size: 10px; color: #abe6cf; }
-@media (max-height: 600px) { .match-scene { bottom: 12px; padding: 10px 16px; } .match-scene p { margin: 6px 0; } }
+.match-scene {
+  position: absolute;
+  z-index: 25;
+  bottom: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(690px, calc(100% - 32px));
+  padding: 18px 24px;
+  background: linear-gradient(120deg, #091a29f5, #0e2530eb);
+  border: 1px solid #7ed7bd55;
+  border-radius: 12px;
+  box-shadow: 0 12px 50px #0007;
+  color: #fff;
+  text-align: center;
+}
+.match-scene small {
+  color: #abe6cf;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+.match-scene p {
+  font-size: clamp(14px, 2vw, 19px);
+  line-height: 1.45;
+  margin: 10px 0 14px;
+}
+.match-scene button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #ffffff35;
+  border-radius: 6px;
+  padding: 8px 15px;
+  background: #ffffff0d;
+  font-size: 12px;
+  font-weight: 700;
+}
+.match-scene kbd {
+  padding: 2px 5px;
+  border: 1px solid #ffffff40;
+  border-radius: 3px;
+  font-size: 10px;
+  color: #abe6cf;
+}
+@media (max-height: 600px) {
+  .match-scene {
+    bottom: 12px;
+    padding: 10px 16px;
+  }
+  .match-scene p {
+    margin: 6px 0;
+  }
+}
 
 /* V7: an action sequence unlocks the winner's signature celebration. */
-.signature-scene { border-color: #d5fb58bb; background: linear-gradient(115deg, #122126f5, #23361ff2); }
-.signature-scene small { color: #d5fb58; }
-.victory-code { margin: 0 auto 14px; }
-.victory-code > div, .signature-help-code { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; }
-.victory-code kbd, .signature-help-code kbd { min-width: 29px; padding: 5px 8px; font-size: 14px; font-weight: 800; text-align: center; }
-.victory-code kbd.accepted { background: #d5fb58; border-color: #d5fb58; color: #14241d; }
-.victory-code > span { display: block; margin-top: 8px; font-size: 12px; color: #b8c9c4; }
-.signature-help { padding: 12px 14px; margin: 14px 0 20px; border: 1px solid #d5fb5855; border-radius: 8px; background: #d5fb5807; }
-.signature-help summary { cursor: pointer; color: #d5fb58; font-size: 14px; font-weight: 700; }
-.signature-help p { margin-top: 12px; }
+.signature-scene {
+  border-color: #d5fb58bb;
+  background: linear-gradient(115deg, #122126f5, #23361ff2);
+}
+.signature-scene small {
+  color: #d5fb58;
+}
+.victory-code {
+  margin: 0 auto 14px;
+}
+.victory-code > div,
+.signature-help-code {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.victory-code kbd,
+.signature-help-code kbd {
+  min-width: 29px;
+  padding: 5px 8px;
+  font-size: 14px;
+  font-weight: 800;
+  text-align: center;
+}
+.victory-code kbd.accepted {
+  background: #d5fb58;
+  border-color: #d5fb58;
+  color: #14241d;
+}
+.victory-code > span {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #b8c9c4;
+}
+.signature-help {
+  padding: 12px 14px;
+  margin: 14px 0 20px;
+  border: 1px solid #d5fb5855;
+  border-radius: 8px;
+  background: #d5fb5807;
+}
+.signature-help summary {
+  cursor: pointer;
+  color: #d5fb58;
+  font-size: 14px;
+  font-weight: 700;
+}
+.signature-help p {
+  margin-top: 12px;
+}
+
+/* V8: one exercise selector keeps every shot available without filling the court. */
+.training-drills {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  width: 290px;
+  padding: 12px;
+  border-radius: 6px;
+  background: #0b2233ed;
+}
+.training-drills > label {
+  color: #c5f365;
+  font-size: 12px;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+.training-drills [aria-label='Ejercicio de pádel'] {
+  width: 100%;
+  font-size: 14px;
+  min-height: 36px;
+  text-align: left;
+  color: #f0f6f5;
+}
+.training-drills p {
+  margin: 0;
+  color: #c3d4dc;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.training-drills > button:last-child {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.screen-play:has(.training-drills) .point-banner {
+  top: 380px;
+}
+.demo-break {
+  position: absolute;
+  right: 38px;
+  bottom: 112px;
+  z-index: 4;
+  display: grid;
+  gap: 8px;
+  padding: 16px 20px;
+  max-width: 350px;
+  border-left: 3px solid var(--lime);
+  background: #081e2bea;
+  pointer-events: none;
+}
+.demo-break small {
+  color: var(--lime);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.demo-break strong {
+  color: #f1f7f4;
+  font-size: 20px;
+}
+.demo-break span {
+  color: #b8cbd4;
+  font-size: 13px;
+}
+@media (max-width: 1000px) and (min-width: 601px) {
+  .training-drills {
+    width: 240px;
+  }
+  .screen-play:has(.training-drills) .point-banner {
+    top: 390px;
+  }
+}
+@media (max-width: 600px) {
+  .training-drills {
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: calc(100% - 24px);
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  .training-drills > label {
+    grid-column: 1 / -1;
+    font-size: 11px;
+  }
+  .training-drills [aria-label='Ejercicio de pádel'] {
+    font-size: 13px;
+    min-height: 32px;
+  }
+  .training-drills p {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    font-size: 12px;
+  }
+  .screen-play:has(.training-drills) .point-banner {
+    top: 280px;
+  }
+  .demo-break {
+    right: 12px;
+    bottom: 100px;
+    max-width: 260px;
+    padding: 10px 13px;
+  }
+  .demo-break strong {
+    font-size: 16px;
+  }
+  .demo-break span {
+    display: none;
+  }
+}
+
+.training-key-hint {
+  display: block;
+  margin-top: 5px;
+  color: #c5f365;
+}
+.demo-break {
+  top: 100px;
+  bottom: auto;
+}
+@media (max-width: 700px) {
+  .demo-break {
+    top: 83px;
+    bottom: auto;
+  }
+}
+
+/* Circuit choice applies to quick match, tournament, training and exhibition. */
+.circuit-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.circuit-selector button {
+  height: 30px;
+  border: 1px solid #647a874d;
+  background: #142631a8;
+  color: #b8c9d0;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.circuit-selector button[aria-pressed='true'] {
+  border-color: #c5f365;
+  color: #c5f365;
+  background: #c5f3650d;
+}
+.circuit-selector button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}

@@ -12,9 +12,17 @@ export interface PlayerAppearance {
   handedness: 'right' | 'left';
   playingSide: 'left' | 'right';
   build: 'compact' | 'athletic' | 'tall';
+  gender?: 'female' | 'male';
   skin: string;
   hair: string;
-  hairStyle: 'short' | 'crop' | 'curly' | 'swept';
+  hairStyle:
+    | 'short'
+    | 'crop'
+    | 'curly'
+    | 'swept'
+    | 'ponytail'
+    | 'bun'
+    | 'braid';
   beard: 'none' | 'stubble' | 'full';
   headband?: string;
   /** Sculpting ratios interpreted from the official portraits, not biometric measurements. */
@@ -26,7 +34,12 @@ export interface PlayerAppearance {
     ink: string;
     brand: string;
     sponsor: string;
-    pattern: 'plain' | 'diagonal' | 'shoulder' | 'blocks';
+    backSponsor?: string;
+    backName?: string;
+    sleeveSponsors?: [string, string];
+    cut?: 'sleeves' | 'sleeveless';
+    bottom?: 'shorts' | 'skirt';
+    pattern: 'plain' | 'diagonal' | 'shoulder' | 'blocks' | 'corner';
   };
   racket: {
     color: string;
@@ -110,6 +123,9 @@ export const PLAYER_PROFILES: Record<string, PlayerAppearance> = {
         ink: '#ffffff',
         brand: 'NOX',
         sponsor: 'QATAR AIRWAYS',
+        backSponsor: 'QATAR AIRWAYS',
+        backName: 'AGUSTÍN TAPIA',
+        sleeveSponsors: ['NFA', 'Commvault'],
         pattern: 'plain',
       },
       racket: {
@@ -135,6 +151,15 @@ export const PLAYER_PROFILES: Record<string, PlayerAppearance> = {
       handedness: 'left',
       skin: '#c8966f',
       hair: '#33251b',
+      kit: {
+        shirt: '#eceee9',
+        shorts: '#18202a',
+        accent: '#c9d1cc',
+        ink: '#172128',
+        brand: 'On',
+        sponsor: '',
+        pattern: 'plain',
+      },
       racket: {
         color: '#22232b',
         accent: '#ca343c',
@@ -163,7 +188,10 @@ export const PLAYER_PROFILES: Record<string, PlayerAppearance> = {
         accent: '#263138',
         ink: '#232a30',
         brand: 'adidas',
-        sponsor: 'Reserve',
+        sponsor: '',
+        backSponsor: 'Reserve',
+        backName: 'ale galán',
+        sleeveSponsors: ['', 'CUPRA'],
         pattern: 'shoulder',
       },
       racket: {
@@ -194,7 +222,8 @@ export const PLAYER_PROFILES: Record<string, PlayerAppearance> = {
         accent: '#4d84a3',
         ink: '#ffffff',
         brand: 'BULLPADEL',
-        sponsor: 'NEURON',
+        sponsor: '',
+        sleeveSponsors: ['FCH · FEDE CHINGOTTO', ''],
         pattern: 'blocks',
       },
       racket: {
@@ -218,6 +247,16 @@ export const PLAYER_PROFILES: Record<string, PlayerAppearance> = {
     '#deebcc',
     {
       skin: '#c19474',
+      kit: {
+        shirt: '#17191d',
+        shorts: '#17191d',
+        accent: '#ed7132',
+        ink: '#ed7132',
+        brand: 'BABOLAT',
+        sponsor: '',
+        backName: 'J. LEBRÓN',
+        pattern: 'plain',
+      },
       racket: {
         color: '#142f29',
         accent: '#bfea64',
@@ -241,13 +280,16 @@ export const PLAYER_PROFILES: Record<string, PlayerAppearance> = {
       skin: '#d2a387',
       hair: '#28201b',
       kit: {
-        shirt: '#f1eee8',
+        shirt: '#493864',
         shorts: '#282a2e',
-        accent: '#ce4037',
-        ink: '#20262c',
+        accent: '#d8e250',
+        ink: '#ffffff',
         brand: 'SIUX',
-        sponsor: 'FENIX',
-        pattern: 'shoulder',
+        sponsor: 'PADELPOINT',
+        backSponsor: 'Estithmar Holding',
+        backName: 'LEO AUGSBURGER',
+        sleeveSponsors: ['KIA Renting', ''],
+        pattern: 'corner',
       },
     },
   ),

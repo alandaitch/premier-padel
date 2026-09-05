@@ -156,9 +156,9 @@ export class MatchPresentation {
       ];
       if (!point.match && point.rest !== 'none') {
         this.phases.push(
-          { phase: 'walk', duration: 6 },
-          { phase: 'bench', duration: point.set ? 7 : 5.8 },
-          { phase: 'return', duration: 6 },
+          { phase: 'walk', duration: 8 },
+          { phase: 'bench', duration: 10 },
+          { phase: 'return', duration: 8 },
         );
       } else if (!point.match && point.changeEnds) {
         // FIP: after the first game / during a tie-break, change without sitting.

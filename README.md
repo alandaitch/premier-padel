@@ -1,13 +1,13 @@
 # Premier Padel
 
-Juego 3D de pádel en español. Séptima edición jugable, inspirada en Premier Padel.
+Juego 3D de pádel en español. Octava edición jugable, inspirada en Premier Padel.
 Implementación independiente con Three.js, React y Vinext/Vite. No modifica alandaitch.com.
 
 ## Jugar
 
-- Partido rápido y torneo reducido de tres rondas: el botón de modo inicia directamente.
-- Entrenamiento con cuatro ejercicios: peloteo, vidrio, doble pared y remate.
-- Ocho parejas seleccionables, contrastadas con Madrid P1 y perfiles FIP de 2026.
+- Partido rápido y torneo de tres rondas masculinas o dos femeninas; el modo inicia directamente.
+- Entrenamiento con 18 ejercicios: cada golpe, cuatro remates, paredes y rescate exterior.
+- Ocho parejas masculinas y cuatro femeninas, contrastadas con Madrid P1 y perfiles FIP de 2026.
 - Madrid P1, Paris Major e Italy Major, con recreaciones distintas de ambiente y arquitectura.
 - Un set corto, un set completo o partido al mejor de tres sets.
 - Tres dificultades y tres cámaras.
@@ -54,7 +54,7 @@ El pique depende de velocidad, giro y superficie; se retiraron los impulsos arti
 La caída de referencia desde 2,54 m cumple el rango FIP sobre superficie dura.
 Vidrio, césped y malla tienen parámetros aproximados documentados en `PHYSICS-V4.md`.
 
-Dieciséis perfiles con altura FIP, mano dominante y lado de cancha; Coello, Sanz y Arce zurdos.
+Veinticuatro perfiles con altura FIP, mano dominante y lado de cancha. Coello, Sanz, Arce, Josemaría y Ustero son zurdos.
 Pelo, barba, complexión, camisetas, nombres y palas diferenciados, conectados a cada selección.
 Modelos y rasgos aproximados a fotografías oficiales, no escaneos fotográficos.
 
@@ -112,7 +112,7 @@ El lint de física, renderer, perfiles, sonido y carga sí pasa. No se declara l
 5. **Circuito.** Tres rondas predefinidas, sin clasificación mundial, carrera, calendarios,
    cuadro completo dinámico, progresión de habilidades ni guardado del partido en curso.
 
-No hay multiplayer online ni soporte específico de gamepad. No se afirma paridad global con TE4.
+No hay multiplayer online. El gamepad tiene mapping configurable; falta prueba con hardware físico. No se afirma paridad global con TE4.
 
 ## Fuentes
 
@@ -153,3 +153,21 @@ La animación retira la camiseta y la muestra extendida hacia los rivales, con s
 - `SIGNATURE-V7.md`: activación, límites y pruebas.
 - `RENDERER-V7.md`: animación y referencia visual.
 - `PADEL-REVIEW-V7.md`: revisión independiente.
+
+
+## Edición 08
+
+- Estampados integrados a la tela, con referencias oficiales y camisetas diferenciadas.
+- Dos banquillos en el lateral derecho, uno por mitad. Entrenador sentado durante el juego, de pie durante el descanso; jugadores sentados, hidratación y conversación.
+- Descansos de diez segundos, también en la exhibición del menú. La exhibición abre en el primer descanso ordinario de un partido simulado realmente y luego continúa.
+- Subida del sacador y avance en pareja ganado por trayectoria y respuesta rival, con defensa del vidrio.
+- 18 ejercicios. Espacio ejecuta el objetivo del ejercicio; L mantiene la carga del remate. Los demás controles y combos siguen disponibles.
+- Videos individuales antes y después; política de conservación en `REVIEW-VIDEOS.md`.
+
+Fuentes, pruebas y límites: `PHYSICS-V8.md`, `RENDERER-V8.md`, `SCENES-V8.md`, `PADEL-REVIEW-V8.md`.
+
+El circuito femenino comparte reglas, controles y motor. Tiene cuatro parejas seleccionables, semifinal y final, entrenamiento completo y exhibición con descansos. La apariencia usa variantes de ropa y pelo; no se aplican penalizaciones deportivas por género. Fuentes y límites en `WOMEN-ROSTER.md`.
+
+El trabajo paralelo y el criterio de modelos están documentados en `EXECUTION-GRAPH.md`. Para actualizar la galería local sin modificar videos: `node scripts/review-gallery.mjs`.
+
+Validación V8: 108 pruebas aprobadas, TypeScript y build de producción aprobados. La revisión visual verifica los ocho modelos femeninos, bancos y estampados; registra límites de naturalidad y semejanza facial.

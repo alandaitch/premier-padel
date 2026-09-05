@@ -55,6 +55,9 @@ type Rig = {
   feetReady: boolean;
   load: number;
   shirt: ShirtRig;
+  bottle: THREE.Group;
+  skirt: { mesh: THREE.Mesh; rest: Float32Array } | null;
+  hairTail: THREE.Group | null;
 };
 
 type ContactRecord = {
@@ -105,10 +108,8 @@ export class PadelRenderer {
   private presentationStarts: THREE.Vector3[] = [];
   private presentationRoutes: THREE.Vector3[][] = [];
   private endsSwapped = false;
-  private benchDepth = Math.max(
-    COURT.halfLength + 3.6,
-    COURT.exteriorHalfLength + 3.6,
-  );
+  private benchX = COURT.halfWidth + COURT.exteriorWidth + 0.85;
+  private benchZ = 5.8;
   private ball: THREE.Mesh;
   private ballViewPosition = new THREE.Vector3();
   private viewportSize = new THREE.Vector2();
@@ -773,83 +774,86 @@ export class PadelRenderer {
         this.scene.add(panel);
       }
     }
-    // Both team areas are beyond the end glass and all exterior recovery space.
+    // Both team benches share the physical right side of the fixed stadium.
+    // Their nearest solid edge is beyond the complete 8m exterior recovery zone.
     for (const end of [-1, 1]) {
-      const z = end * this.benchDepth;
-      const cushion = this.material(0x263c49, 0.88);
-      this.box(3.2, 0.12, 0.6, cushion, 0, 0.48, z, this.scene);
-      this.box(3.2, 0.57, 0.11, cushion, 0, 0.83, z + end * 0.25, this.scene);
-      for (const x of [-1.32, 1.32])
-        this.box(0.07, 0.43, 0.48, black, x, 0.215, z, this.scene);
-      for (const x of [-0.77, 0.77]) {
-        this.box(
-          0.45,
-          0.025,
-          0.36,
-          this.material(0xdde1d8),
-          x,
-          0.554,
-          z + end * 0.05,
-          this.scene,
-        );
-        this.box(
-          0.47,
-          0.018,
-          0.025,
-          this.material(0x92a1a2),
-          x,
-          0.571,
-          z,
-          this.scene,
-        );
+      const area = new THREE.Group();
+      area.position.set(this.benchX, 0, end * this.benchZ);
+      area.rotation.y = Math.PI / 2;
+      this.scene.add(area);
+      const frame = this.material(0x65717b, 0.8);
+      const cushion = this.material(0x164ab8, 0.91);
+      const white = this.material(0xe3e6e5, 0.89);
+      this.box(3.9, 0.1, 0.43, frame, -0.48, 0.38, 0.12, area);
+      for (const seat of [-1.72, -0.72, 0.72]) {
+        this.box(0.82, 0.045, 0.46, cushion, seat, 0.453, 0.095, area);
+        const back = this.box(0.87, 0.66, 0.11, white, seat, 0.89, 0.25, area);
+        back.rotation.x = -0.1;
+        this.box(0.64, 0.36, 0.045, cushion, seat, 0.765, 0.175, area);
       }
-      const table = this.material(0x627884, 0.65);
-      this.box(0.64, 0.045, 0.6, table, 2.0, 0.68, z, this.scene);
-      this.cylinder(0.04, 0.06, 0.65, black, this.scene, 2, 0.325, z);
-      for (const x of [1.85, 2.1]) {
-        this.cylinder(
-          0.04,
-          0.038,
-          0.23,
-          this.material(0xe3edf0, 0.25),
-          this.scene,
-          x,
-          0.815,
-          z,
-        );
-        this.cylinder(
-          0.032,
-          0.032,
-          0.025,
-          this.material(0x61b8db),
-          this.scene,
-          x,
-          0.942,
-          z,
-        );
+      for (const x of [-2.25, 1.26]) {
+        this.box(0.07, 0.33, 0.55, black, x, 0.165, 0, area);
+        this.box(0.055, 0.22, 0.6, frame, x, 0.585, -0.02, area);
+      }
+      const towel = this.box(
+        0.35,
+        0.022,
+        0.42,
+        white,
+        1.04,
+        0.485,
+        -0.06,
+        area,
+      );
+      towel.rotation.y = 0.12;
+      this.box(0.34, 0.045, 0.09, cushion, 1.04, 0.49, -0.22, area);
+      this.box(0.68, 0.045, 0.62, frame, -2.85, 0.65, 0.04, area);
+      this.cylinder(0.035, 0.07, 0.62, black, area, -2.85, 0.31, 0.04);
+      for (const x of [-2.99, -2.73]) {
+        const bottle = this.makeBottle();
+        bottle.position.set(x, 0.786, 0.04);
+        area.add(bottle);
       }
       const bag = this.sphere(
         0.24,
         0.15,
         0.48,
         this.material(0x172a36),
-        this.scene,
-        -2,
+        area,
+        1.79,
         0.18,
-        z,
+        0.03,
       );
-      bag.rotation.y = 0.3;
+      bag.rotation.y = 0.24;
       const label = this.makeBanner(
-        'PREMIER PADEL   •   EQUIPO',
-        3.2,
-        0.28,
-        '#152835',
-        '#c9d3d4',
-        40,
+        'PREMIER PADEL',
+        3.8,
+        0.25,
+        '#243849',
+        '#e8edf0',
+        42,
       );
-      label.position.set(0, 0.83, z + end * 0.316);
-      label.rotation.y = end > 0 ? 0 : Math.PI;
-      this.scene.add(label);
+      label.position.set(-0.48, 0.775, 0.322);
+      area.add(label);
+      // A compact floor fan mirrors the sideline rest area in the user reference.
+      this.cylinder(0.13, 0.15, 0.055, frame, area, 1.9, 0.035, 0.63);
+      this.cylinder(0.025, 0.03, 0.55, frame, area, 1.9, 0.3, 0.63);
+      const fan = new THREE.Group();
+      fan.position.set(1.9, 0.61, 0.63);
+      fan.rotation.y = -0.28;
+      area.add(fan);
+      for (const radius of [0.11, 0.2, 0.29]) {
+        const guard = new THREE.Mesh(
+          new THREE.TorusGeometry(radius, 0.006, 5, 40),
+          frame,
+        );
+        fan.add(guard);
+      }
+      for (let i = 0; i < 12; i++) {
+        const spoke = this.box(0.006, 0.58, 0.007, frame, 0, 0, 0.003, fan);
+        spoke.rotation.z = (i * Math.PI) / 12;
+      }
+      this.sphere(0.055, 0.055, 0.045, frame, fan, 0, 0, -0.02);
     }
     // Raised umpire chair, beyond the full legal recovery zone.
     const umpireX = -(COURT.halfWidth + COURT.exteriorWidth + 0.9);
@@ -973,12 +977,16 @@ export class PadelRenderer {
     }[] = [];
     for (let row = 0; row < 7; row++) {
       const y = 0.25 + row * 0.52;
-      const z = -this.benchDepth - 2.0 - row * 0.9;
+      const z = -COURT.halfLength - 5.6 - row * 0.9;
       this.box(25, 0.55 + row * 0.52, 0.89, concrete, 0, y / 2, z, this.scene);
       rows.push({ x: -11.7, y: y + 0.15, z, rot: 0, count: 38, step: 0.63 });
       for (const side of [-1, 1]) {
         const x =
-          side * (COURT.halfWidth + COURT.exteriorWidth + 1.6 + row * 0.85);
+          side *
+          (COURT.halfWidth +
+            COURT.exteriorWidth +
+            (side > 0 ? 3.1 : 1.6) +
+            row * 0.85);
         this.box(
           0.86,
           0.55 + row * 0.52,
@@ -1250,7 +1258,8 @@ export class PadelRenderer {
       crowdHands,
     );
     for (const side of [-1, 1]) {
-      const x = side * (COURT.halfWidth + COURT.exteriorWidth + 0.9);
+      const x =
+        side * (COURT.halfWidth + COURT.exteriorWidth + (side > 0 ? 2.2 : 0.9));
       this.box(0.05, 0.05, 23, rails, x, 1.02, -1.5, this.scene);
       for (let z = -12; z < 11; z += 2)
         this.box(0.05, 1, 0.05, rails, x, 0.5, z, this.scene);
@@ -1419,7 +1428,12 @@ export class PadelRenderer {
           y,
           -Math.cos(theta) * radiusZ * fold,
         );
-        uv.push(col / segments, row / (rings.length - 1));
+        uv.push(
+          wrinkles ? 1 - col / segments : col / segments,
+          wrinkles
+            ? (y - rings[0][0]) / (rings[rings.length - 1][0] - rings[0][0])
+            : row / (rings.length - 1),
+        );
         if (row < rings.length - 1 && col < segments) {
           const a = row * (segments + 1) + col,
             b = a + segments + 1;
@@ -1442,8 +1456,10 @@ export class PadelRenderer {
     return mesh;
   }
 
-  private uniformTexture(profile: PlayerAppearance) {
-    return this.textureCanvas(512, (ctx, size) => {
+  private uniformTexture(profile: PlayerAppearance, printed = false) {
+    return this.textureCanvas(1024, (ctx, size) => {
+      ctx.scale(2, 2);
+      size = 512;
       const kit = profile.kit;
       ctx.fillStyle = kit.shirt;
       ctx.fillRect(0, 0, size, size);
@@ -1462,17 +1478,36 @@ export class PadelRenderer {
           for (let stripe = 0; stripe < 3; stripe++)
             ctx.fillRect(x + stripe * 9, 0, 5, 180);
       } else if (kit.pattern === 'blocks') {
-        ctx.fillRect(0, 0, size, 95);
-        ctx.fillRect(0, 385, size, 127);
-        ctx.globalAlpha = 0.38;
-        for (let y = 105; y < 385; y += 13) ctx.fillRect(0, y, size, 2);
-        ctx.beginPath();
-        ctx.moveTo(0, 220);
-        ctx.lineTo(size, 330);
-        ctx.lineTo(size, 370);
-        ctx.lineTo(0, 260);
-        ctx.fill();
+        ctx.globalAlpha = 0.55;
+        for (let x = -512; x < 512; x += 7) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x + 512, 512);
+          ctx.strokeStyle = kit.accent;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 0.48;
+        ctx.fillStyle = '#102c49';
+        for (const center of [0, 256, 512]) {
+          ctx.beginPath();
+          ctx.moveTo(center - 87, 127);
+          ctx.lineTo(center + 20, 173);
+          ctx.lineTo(center + 16, 349);
+          ctx.lineTo(center - 97, 294);
+          ctx.fill();
+        }
         ctx.globalAlpha = 1;
+      } else if (kit.pattern === 'corner') {
+        for (const center of [0, 512]) {
+          ctx.beginPath();
+          ctx.moveTo(center + 46, 512);
+          ctx.lineTo(center + 92, 512);
+          ctx.lineTo(center + 112, 364);
+          ctx.lineTo(center + 74, 407);
+          ctx.closePath();
+          ctx.fill();
+        }
       }
       // Woven grain, seam stitching and broad compression folds keep the shirt fabric-like.
       for (let y = 0; y < size; y += 3) {
@@ -1500,6 +1535,164 @@ export class PadelRenderer {
         gradient.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = gradient;
         ctx.fillRect(0, y - 10, size, 22);
+      }
+      if (printed) {
+        // Ink shares the deforming torso surface. Flat floating labels previously
+        // disappeared against the curved shirt, especially at oblique angles.
+        // The front crosses the UV seam; repeat its artwork at both edges.
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = kit.ink;
+        const yy = (height: number) => (1 - (height - 0.145) / 0.58) * 512;
+        const word = (
+          value: string,
+          x: number,
+          y: number,
+          width: number,
+          fontSize: number,
+          serif = false,
+        ) => {
+          ctx.font = `${serif ? '600' : '800'} ${fontSize}px ${serif ? 'Georgia' : 'Arial'}, sans-serif`;
+          ctx.fillText(value, x, y, width);
+        };
+        const logo = (
+          brand: string,
+          x: number,
+          y: number,
+          width: number,
+          height: number,
+        ) => {
+          ctx.save();
+          ctx.translate(x, y);
+          if (brand === 'QATAR AIRWAYS') {
+            word('QATAR', 0, -height * 0.2, width, height * 0.71, true);
+            word('AIRWAYS', 0, height * 0.35, width * 0.84, height * 0.38);
+          } else if (brand.toLowerCase() === 'on') {
+            ctx.font = `600 ${height * 1.1}px Arial`;
+            ctx.fillText('on', 0, 0, width);
+          } else if (brand === 'NOX') {
+            ctx.font = `italic 900 ${height * 1.12}px Arial`;
+            ctx.fillText('nox', 0, 0, width);
+          } else if (brand.toLowerCase() === 'adidas') {
+            for (let bar = 0; bar < 3; bar++) {
+              ctx.save();
+              ctx.translate((bar - 1) * width * 0.12, -height * 0.2);
+              ctx.rotate(-0.38);
+              ctx.fillRect(
+                -width * 0.047,
+                -bar * height * 0.13,
+                width * 0.087,
+                height * (0.22 + bar * 0.13),
+              );
+              ctx.restore();
+            }
+            word('adidas', 0, height * 0.45, width, height * 0.42);
+          } else {
+            word(brand, 0, 0, width, height);
+          }
+          ctx.restore();
+        };
+        const wolf = (x: number, y: number, width: number) => {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.scale(width / 80, width / 80);
+          ctx.strokeStyle = kit.ink;
+          ctx.lineWidth = 3.4;
+          for (const side of [-1, 1]) {
+            ctx.beginPath();
+            ctx.moveTo(side * 10, -24);
+            ctx.lineTo(side * 27, -40);
+            ctx.lineTo(side * 39, -4);
+            ctx.lineTo(side * 29, 13);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(side * 29, 20);
+            ctx.lineTo(side * 18, 24);
+            ctx.lineTo(side * 9, 41);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(side * 25, -2);
+            ctx.lineTo(side * 10, 4);
+            ctx.lineTo(side * 13, 12);
+            ctx.closePath();
+            ctx.fill();
+          }
+          ctx.restore();
+        };
+        for (const center of [0, 512]) {
+          if (profile.id === 'augsburger') ctx.fillStyle = kit.accent;
+          logo(kit.brand, center + 34, yy(0.622), 52, 20);
+          ctx.fillStyle = kit.ink;
+          if (profile.id === 'chingotto')
+            logo('NEURON', center - 34, yy(0.623), 58, 16);
+          if (kit.sponsor)
+            logo(
+              kit.sponsor,
+              center,
+              yy(0.43),
+              135,
+              kit.sponsor === 'QATAR AIRWAYS' ? 65 : 40,
+            );
+          if (profile.id === 'lebron') {
+            wolf(center - 34, yy(0.626), 25);
+          }
+        }
+        const back = 256;
+        const backName = kit.backName ?? profile.surname.toUpperCase();
+        word(backName, back, yy(0.608), 155, 24);
+        if (profile.id === 'tapia') {
+          ctx.fillStyle = '#85c4df';
+          ctx.fillRect(back - 12, yy(0.663) - 8, 24, 16);
+          ctx.fillStyle = '#f8f8ed';
+          ctx.fillRect(back - 12, yy(0.663) - 2.7, 24, 5.4);
+          ctx.fillStyle = '#d9b855';
+          ctx.beginPath();
+          ctx.arc(back, yy(0.663), 1.5, 0, TAU);
+          ctx.fill();
+          ctx.fillStyle = kit.ink;
+          logo('QATAR AIRWAYS', back, yy(0.43), 136, 69);
+          logo('NOX', back, yy(0.245), 121, 42);
+        } else if (profile.id === 'lebron') {
+          ctx.fillStyle = '#b52925';
+          ctx.fillRect(back - 16, yy(0.666) - 7, 16, 14);
+          ctx.fillStyle = '#f4be39';
+          ctx.fillRect(back - 16, yy(0.666) - 2.8, 16, 5.6);
+          ctx.fillStyle = '#399460';
+          ctx.fillRect(back, yy(0.666) - 7, 16, 14);
+          ctx.fillStyle = '#f6f4e8';
+          ctx.fillRect(back, yy(0.666) - 2.8, 16, 5.6);
+          ctx.fillStyle = kit.ink;
+          wolf(back, yy(0.49), 52);
+          logo('BABOLAT', back, yy(0.235), 137, 39);
+        } else {
+          if (profile.id === 'galan') {
+            ctx.fillStyle = '#ae3028';
+            ctx.fillRect(back - 12, yy(0.663) - 7, 24, 14);
+            ctx.fillStyle = '#efbc3e';
+            ctx.fillRect(back - 12, yy(0.663) - 3, 24, 6);
+            ctx.fillStyle = kit.ink;
+          }
+          if (profile.id === 'augsburger') {
+            ctx.fillStyle = '#85c4df';
+            ctx.fillRect(back - 11, yy(0.659) - 7, 22, 14);
+            ctx.fillStyle = '#f5f5eb';
+            ctx.fillRect(back - 11, yy(0.659) - 2.4, 22, 4.8);
+            ctx.fillStyle = kit.ink;
+          }
+          logo(
+            kit.backSponsor ??
+              (profile.id === 'galan' ? kit.sponsor : kit.brand),
+            back,
+            yy(0.365),
+            143,
+            49,
+          );
+          if (kit.backSponsor && profile.id !== 'galan') {
+            ctx.fillStyle = kit.accent;
+            logo(kit.brand, back, yy(0.225), 129, 42);
+            ctx.fillStyle = kit.ink;
+          }
+        }
       }
     });
   }
@@ -1591,10 +1784,10 @@ export class PadelRenderer {
     hair: THREE.Material,
   ) {
     const ratios = profile.face ?? {
-      jaw: 1,
-      nose: 1,
+      jaw: profile.gender === 'female' ? 0.94 : 1,
+      nose: profile.gender === 'female' ? 0.96 : 1,
       eyes: 1,
-      brow: 1,
+      brow: profile.gender === 'female' ? 0.84 : 1,
       lip: 1,
     };
     // Outer ear and concha surround the sculpted facial surface.
@@ -1782,7 +1975,158 @@ export class PadelRenderer {
     }
   }
 
+  private makeTiedHair(
+    profile: PlayerAppearance,
+    head: THREE.Group,
+    hair: THREE.Material,
+    tie: THREE.Material,
+  ): THREE.Group | null {
+    if (!['ponytail', 'bun', 'braid'].includes(profile.hairStyle)) return null;
+    const group = new THREE.Group();
+    group.name = `Pelo recogido ${profile.hairStyle}`;
+    group.position.set(0, 0.113, 0.102);
+    head.add(group);
+    const taperedLock = (
+      points: THREE.Vector3[],
+      radius: number,
+      taper: number,
+      parent: THREE.Object3D = group,
+    ) => {
+      const path = new THREE.CatmullRomCurve3(points);
+      const geometry = new THREE.TubeGeometry(path, 30, radius, 8, false);
+      const vertices = geometry.attributes.position;
+      const center = new THREE.Vector3();
+      for (let row = 0; row <= 30; row++) {
+        const t = row / 30;
+        path.getPointAt(t, center);
+        const scale = THREE.MathUtils.lerp(1, taper, t ** 1.35);
+        for (let col = 0; col <= 8; col++) {
+          const i = row * 9 + col;
+          vertices.setXYZ(
+            i,
+            center.x + (vertices.getX(i) - center.x) * scale,
+            center.y + (vertices.getY(i) - center.y) * scale,
+            center.z + (vertices.getZ(i) - center.z) * scale,
+          );
+        }
+      }
+      geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, hair);
+      mesh.castShadow = true;
+      parent.add(mesh);
+      return mesh;
+    };
+    // Combed curves join the scalp to the tie instead of adding separate hair balls.
+    for (let strand = -3; strand <= 3; strand++) {
+      const x = strand * 0.022;
+      this.featureCurve(
+        [
+          [x, 0.178 - Math.abs(strand) * 0.007, -0.045],
+          [x * 0.9, 0.17 - Math.abs(strand) * 0.007, 0.05],
+          [x * 0.38, 0.125, 0.119],
+        ],
+        0.0025,
+        hair,
+        head,
+      );
+    }
+    if (profile.hairStyle === 'bun') {
+      const coil = Array.from({ length: 34 }, (_, i) => {
+        const t = i / 33;
+        const angle = t * TAU * 2.8;
+        const radius = 0.043 * Math.sin(Math.PI * (0.12 + t * 0.76));
+        return new THREE.Vector3(
+          Math.cos(angle) * radius,
+          Math.sin(angle) * radius + 0.008,
+          0.025 + t * 0.061,
+        );
+      });
+      taperedLock(coil, 0.022, 0.65);
+    } else if (profile.hairStyle === 'braid') {
+      for (let braid = 0; braid < 3; braid++) {
+        const points = Array.from({ length: 30 }, (_, i) => {
+          const t = i / 29;
+          const angle = t * TAU * 4 + (braid * TAU) / 3;
+          const radius = 0.018 * (1 - t * 0.62);
+          return new THREE.Vector3(
+            Math.sin(angle) * radius,
+            0.018 - t * 0.3,
+            0.045 + Math.sin(t * Math.PI) * 0.065 + Math.cos(angle) * radius,
+          );
+        });
+        taperedLock(points, 0.012, 0.42);
+      }
+    } else {
+      taperedLock(
+        [
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(0, 0.012, 0.075),
+          new THREE.Vector3(0.012, -0.085, 0.14),
+          new THREE.Vector3(0.027, -0.235, 0.128),
+          new THREE.Vector3(0.015, -0.32, 0.103),
+        ],
+        0.038,
+        0.16,
+      );
+      for (const side of [-1, 1]) {
+        taperedLock(
+          [
+            new THREE.Vector3(side * 0.019, -0.008, 0.014),
+            new THREE.Vector3(side * 0.03, -0.09, 0.143),
+            new THREE.Vector3(side * 0.019 + 0.014, -0.24, 0.128),
+            new THREE.Vector3(0.015, -0.318, 0.104),
+          ],
+          0.009,
+          0.15,
+        );
+      }
+    }
+    const band = new THREE.Mesh(
+      new THREE.TorusGeometry(0.029, 0.006, 6, 16),
+      tie,
+    );
+    band.position.z = 0.018;
+    group.add(band);
+    return group;
+  }
+
+  private updateAthleticClothes(rig: Rig) {
+    if (rig.hairTail) {
+      const motion = this.presentation?.phase === 'bench' ? 0.2 : 1;
+      rig.hairTail.rotation.x = Math.sin(rig.gaitPhase * 0.5) * 0.045 * motion;
+      rig.hairTail.rotation.z = Math.sin(rig.gaitPhase) * 0.032 * motion;
+    }
+    if (!rig.skirt) return;
+    const { mesh, rest } = rig.skirt;
+    const positions = mesh.geometry.attributes.position;
+    const point = new THREE.Vector3();
+    const left = new THREE.Vector3();
+    const right = new THREE.Vector3();
+    for (let i = 0; i < positions.count; i++) {
+      point.fromArray(rest, i * 3);
+      const hemWeight = THREE.MathUtils.smoothstep(0.155 - point.y, 0, 0.34);
+      const sideWeight = THREE.MathUtils.smoothstep(point.x, -0.13, 0.13);
+      left
+        .copy(point)
+        .sub(rig.leftLeg.position)
+        .applyQuaternion(rig.leftLeg.quaternion)
+        .add(rig.leftLeg.position);
+      right
+        .copy(point)
+        .sub(rig.rightLeg.position)
+        .applyQuaternion(rig.rightLeg.quaternion)
+        .add(rig.rightLeg.position);
+      left.lerp(right, sideWeight);
+      point.lerp(left, hemWeight);
+      positions.setXYZ(i, point.x, point.y, point.z);
+    }
+    positions.needsUpdate = true;
+    mesh.geometry.computeVertexNormals();
+  }
+
   private makePlayer(index: number, profile: PlayerAppearance): Rig {
+    const female = profile.gender === 'female';
+    const sleeveless = profile.kit.cut === 'sleeveless';
     const root = new THREE.Group(),
       body = new THREE.Group(),
       chest = new THREE.Group(),
@@ -1801,7 +2145,11 @@ export class PadelRenderer {
         : profile.build === 'tall'
           ? 0.965
           : 1;
-    root.scale.set(bodyScale * girth, bodyScale, bodyScale);
+    root.scale.set(
+      bodyScale * girth * (female ? 0.97 : 1),
+      bodyScale,
+      bodyScale,
+    );
     const hand = profile.handedness === 'left' ? -1 : 1;
     const skinMap = this.textureCanvas(256, (ctx, size) => {
       ctx.fillStyle = profile.skin;
@@ -1826,7 +2174,7 @@ export class PadelRenderer {
       0.85,
     );
     const shirt = new THREE.MeshPhysicalMaterial({
-      map: this.uniformTexture(profile),
+      map: this.uniformTexture(profile, true),
       roughness: 0.92,
       sheen: 0.72,
       sheenColor: new THREE.Color(profile.kit.shirt).lerp(
@@ -1842,8 +2190,16 @@ export class PadelRenderer {
     const hair = this.material(profile.hair, 0.95);
     const sleeves: THREE.Object3D[] = [];
     const bare: THREE.Object3D[] = [];
+    const torsoRings = (rings: Array<[number, number, number]>) =>
+      female
+        ? rings.map(([y, x, z]): [number, number, number] => [
+            y,
+            x * (y < 0.23 ? 1.015 : y < 0.43 ? 0.91 : y < 0.69 ? 0.9 : 0.95),
+            z * (y < 0.38 ? 0.96 : 0.99),
+          ])
+        : rings;
     const bareTorso = this.anatomicalSurface(
-      [
+      torsoRings([
         [0.145, 0.178, 0.116],
         [0.24, 0.175, 0.125],
         [0.33, 0.187, 0.132],
@@ -1853,7 +2209,7 @@ export class PadelRenderer {
         [0.655, 0.235, 0.134],
         [0.695, 0.177, 0.104],
         [0.731, 0.064, 0.062],
-      ],
+      ]),
       skin,
       upper,
     );
@@ -1875,7 +2231,7 @@ export class PadelRenderer {
     bare.push(bareTorso);
     // Thorax, waist and shoulder bridge are one continuous surface, with actual cloth folds.
     const wornShirt = this.anatomicalSurface(
-      [
+      torsoRings([
         [0.145, 0.195, 0.126],
         [0.2, 0.195, 0.129],
         [0.28, 0.194, 0.137],
@@ -1885,7 +2241,7 @@ export class PadelRenderer {
         [0.65, 0.258, 0.145],
         [0.695, 0.199, 0.116],
         [0.725, 0.096, 0.079],
-      ],
+      ]),
       shirt,
       upper,
       true,
@@ -1914,40 +2270,33 @@ export class PadelRenderer {
       24,
     );
     waist.scale.z = 0.65;
-    const sponsor = this.playerLabel(
-      profile.kit.sponsor,
-      0.33,
-      0.072,
-      profile.kit.ink,
-    );
-    sponsor.position.set(0, 0.48, -0.166);
-    sponsor.rotation.y = Math.PI;
-    upper.add(sponsor);
-    const brand = this.playerLabel(
-      profile.kit.brand,
-      0.11,
-      0.033,
-      profile.kit.ink,
-    );
-    brand.position.set(0.122, 0.62, -0.139);
-    brand.rotation.y = Math.PI;
-    upper.add(brand);
-    const surname = this.playerLabel(
-      profile.surname.toUpperCase(),
-      0.31,
-      0.058,
-      profile.kit.ink,
-    );
-    surname.position.set(0, 0.54, 0.169);
-    upper.add(surname);
-    const backBrand = this.playerLabel(
-      profile.id === 'galan' ? profile.kit.sponsor : profile.kit.brand,
-      0.21,
-      0.057,
-      profile.kit.ink,
-    );
-    backBrand.position.set(0, 0.34, 0.15);
-    upper.add(backBrand);
+    let skirt: Rig['skirt'] = null;
+    if (profile.kit.bottom === 'skirt') {
+      const skirtMaterial = new THREE.MeshStandardMaterial({
+        color: profile.kit.shorts,
+        roughness: 0.95,
+        side: THREE.DoubleSide,
+      });
+      const mesh = this.anatomicalSurface(
+        [
+          [-0.225, 0.273, 0.182],
+          [-0.15, 0.26, 0.174],
+          [-0.06, 0.238, 0.165],
+          [0.035, 0.217, 0.153],
+          [0.125, 0.207, 0.143],
+          [0.168, 0.205, 0.138],
+        ],
+        skirtMaterial,
+        body,
+        true,
+      );
+      mesh.name = 'Falda deportiva sobre short interior';
+      skirt = {
+        mesh,
+        rest: new Float32Array(mesh.geometry.attributes.position.array),
+      };
+    }
+    // Logos and surnames now live in the cloth atlas rather than depth-tested planes.
     this.cylinder(0.057, 0.07, 0.13, skin, upper, 0, 0.77, 0, 20);
     const collar = new THREE.Mesh(
       new THREE.TorusGeometry(0.085, 0.012, 7, 28),
@@ -1964,7 +2313,7 @@ export class PadelRenderer {
       profile.id.includes('galan') || profile.id.includes('lebron');
     const jaw =
       profile.face?.jaw ??
-      (angular ? 1.06 : profile.build === 'compact' ? 0.95 : 1);
+      (female ? 0.94 : angular ? 1.06 : profile.build === 'compact' ? 0.95 : 1);
     const faceSurface = this.anatomicalSurface(
       [
         [-0.127, 0.039, 0.047],
@@ -2066,6 +2415,7 @@ export class PadelRenderer {
         lock.rotation.z = -0.22;
       }
     }
+    const hairTail = this.makeTiedHair(profile, head, hair, trim);
     if (profile.beard !== 'none') {
       const beardMap = this.textureCanvas(128, (ctx, size) => {
         ctx.fillStyle = profile.skin;
@@ -2123,8 +2473,29 @@ export class PadelRenderer {
       head.add(band);
     }
     const arm = (side: -1 | 1) => {
+      const sleeveShirt = shirt.clone();
+      sleeveShirt.map = this.textureCanvas(512, (ctx, size) => {
+        ctx.fillStyle = profile.kit.shirt;
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = profile.kit.accent;
+        ctx.fillRect(0, size - 20, size, 9);
+        const mark = profile.kit.sleeveSponsors?.[side < 0 ? 0 : 1];
+        if (mark) {
+          ctx.translate(side < 0 ? 128 : 384, 308);
+          ctx.scale(-1, 1);
+          if (mark === 'NFA') {
+            ctx.fillStyle = '#172028';
+            ctx.fillRect(-63, -42, 126, 84);
+          }
+          ctx.fillStyle = profile.kit.ink;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.font = '700 48px Arial';
+          ctx.fillText(mark, 0, 0, 141);
+        }
+      });
       const shoulder = new THREE.Group();
-      shoulder.position.set(side * 0.239, 0.631, 0);
+      shoulder.position.set(side * (female ? 0.222 : 0.239), 0.631, 0);
       upper.add(shoulder);
       const bareShoulder = this.anatomicalSurface(
         [
@@ -2137,7 +2508,7 @@ export class PadelRenderer {
         skin,
         shoulder,
       );
-      bare.push(bareShoulder);
+      if (!sleeveless) bare.push(bareShoulder);
       const sleeve = this.anatomicalSurface(
         [
           [-0.143, 0.076, 0.075],
@@ -2146,10 +2517,23 @@ export class PadelRenderer {
           [0.025, 0.066, 0.063],
           [0.054, 0.026, 0.03],
         ],
-        shirt,
+        sleeveShirt,
         shoulder,
       );
-      sleeves.push(sleeve);
+      if (sleeveless) {
+        sleeve.visible = false;
+        // The armhole is a fabric edge; the deltoid remains part of the moving arm.
+        this.featureCurve(
+          [
+            [side * 0.205, 0.674, -0.105],
+            [side * 0.235, 0.621, -0.095],
+            [side * 0.217, 0.526, -0.06],
+          ],
+          0.006,
+          trim,
+          upper,
+        );
+      } else sleeves.push(sleeve);
       this.anatomicalSurface(
         [
           [-0.321, 0.054, 0.052],
@@ -2222,7 +2606,7 @@ export class PadelRenderer {
       const short = this.cylinder(
         0.119,
         0.113,
-        0.255,
+        profile.kit.bottom === 'skirt' ? 0.2 : 0.255,
         shorts,
         hip,
         0,
@@ -2277,12 +2661,17 @@ export class PadelRenderer {
     const setAsideRacket = racket.clone(true);
     setAsideRacket.visible = false;
     root.add(setAsideRacket);
+    const bottle = this.makeBottle();
+    bottle.scale.setScalar(1 / bodyScale);
+    bottle.visible = false;
+    root.add(bottle);
     const shirtRig: ShirtRig = {
       worn: wornShirt,
       rest: new Float32Array(wornShirt.geometry.attributes.position.array),
-      attachments: [sponsor, brand, surname, backBrand, collar].map(
-        (object) => ({ object, position: object.position.clone() }),
-      ),
+      attachments: [collar].map((object) => ({
+        object,
+        position: object.position.clone(),
+      })),
       sleeves,
       bare,
       loose: loose.group,
@@ -2341,6 +2730,9 @@ export class PadelRenderer {
       feetReady: false,
       load: 0,
       shirt: shirtRig,
+      bottle,
+      skirt,
+      hairTail,
     };
   }
 
@@ -2401,11 +2793,17 @@ export class PadelRenderer {
     );
     const uv: number[] = [];
     for (let i = 0; i < vertices.length; i += 3)
-      uv.push((vertices[i] + 0.44) / 0.88, (vertices[i + 1] + 0.55) / 0.625);
+      uv.push(
+        1 - (vertices[i] + 0.44) / 0.88,
+        (vertices[i + 1] + 0.55) / 0.625,
+      );
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geometry.computeVertexNormals();
+    const print = this.uniformTexture(profile, true);
+    print.repeat.set(0.7, 1);
+    print.offset.set(0.15, 0);
     const material = new THREE.MeshPhysicalMaterial({
-      map: this.uniformTexture(profile),
+      map: print,
       roughness: 0.94,
       side: THREE.DoubleSide,
       sheen: 0.65,
@@ -2415,33 +2813,8 @@ export class PadelRenderer {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = mesh.receiveShadow = true;
     group.add(mesh);
-    // Rear of the actual kit faces the rivals, with upright readable lettering.
-    const surname = this.playerLabel(
-      profile.surname.toUpperCase(),
-      0.37,
-      0.076,
-      profile.kit.ink,
-    );
-    surname.position.set(0, -0.13, -0.034);
-    surname.rotation.y = Math.PI;
-    group.add(surname);
-    const rearBrand = this.playerLabel(
-      profile.kit.brand,
-      0.26,
-      0.059,
-      profile.kit.ink,
-    );
-    rearBrand.position.set(0, -0.32, -0.037);
-    rearBrand.rotation.y = Math.PI;
-    group.add(rearBrand);
-    const frontBrand = this.playerLabel(
-      profile.kit.sponsor,
-      0.32,
-      0.066,
-      profile.kit.ink,
-    );
-    frontBrand.position.set(0, -0.26, 0.037);
-    group.add(frontBrand);
+    // The same back artwork is visible on the removed garment, without decals
+    // hovering over the draped surface or an outdated surname/sponsor layer.
     return { group, mesh };
   }
 
@@ -2814,6 +3187,8 @@ export class PadelRenderer {
       const player = state.players[i];
       if (!player) continue;
       const rig = this.rigs[i];
+      // A skipped bench can resume directly; props must not survive that transition.
+      rig.bottle.visible = false;
       const hitArm = rig.dominantArm,
         hitElbow = rig.dominantElbow;
       const offArm = rig.hand === 1 ? rig.leftArm : rig.rightArm;
@@ -3345,6 +3720,7 @@ export class PadelRenderer {
       Math.min(1, dt * 4),
     );
     this.applyMatchPresentation(state);
+    this.rigs.forEach((rig) => this.updateAthleticClothes(rig));
     this.updateCamera(ball.x, ball.z, dt);
     this.updateShotEffects(state, tactical, time);
     if (this.presentation) {
@@ -3408,8 +3784,67 @@ export class PadelRenderer {
     });
   }
 
+  private makeBottle() {
+    const bottle = new THREE.Group();
+    const plastic = new THREE.MeshPhysicalMaterial({
+      color: 0xc6e1e5,
+      roughness: 0.26,
+      transparent: true,
+      opacity: 0.82,
+      metalness: 0,
+      clearcoat: 0.7,
+    });
+    const cap = this.material(0x2689c1, 0.55);
+    this.cylinder(0.036, 0.041, 0.18, plastic, bottle, 0, -0.016, 0, 18);
+    this.cylinder(0.018, 0.036, 0.043, plastic, bottle, 0, 0.095, 0, 18);
+    this.cylinder(0.019, 0.019, 0.033, cap, bottle, 0, 0.131, 0, 16);
+    this.cylinder(
+      0.0415,
+      0.0415,
+      0.057,
+      this.material(0xe4eff0, 0.8),
+      bottle,
+      0,
+      -0.012,
+      0,
+      18,
+    );
+    for (const y of [-0.075, -0.052, 0.051, 0.068]) {
+      const rib = new THREE.Mesh(
+        new THREE.TorusGeometry(0.038, 0.0018, 4, 20),
+        plastic,
+      );
+      rib.rotation.x = Math.PI / 2;
+      rib.position.y = y;
+      bottle.add(rib);
+    }
+    return bottle;
+  }
+
   private benchEnd(team: number): number {
     return (team === 0 ? 1 : -1) * (this.presentation?.changeEnds ? -1 : 1);
+  }
+
+  /** Convert a fixed right-side bench seat to the actors' court-relative frame. */
+  private benchPosition(end: number, seat: number): THREE.Vector3 {
+    const flip = this.endsSwapped ? -1 : 1;
+    return new THREE.Vector3(
+      (this.benchX - 0.14) * flip,
+      0,
+      end * this.benchZ - seat * flip,
+    );
+  }
+
+  private benchFacing() {
+    return ((this.endsSwapped ? -1 : 1) * Math.PI) / 2;
+  }
+
+  private doorwayZ(index: number, end: number) {
+    return end * (COURT.doorMinZ + 0.3 + (index % 2) * 0.5);
+  }
+
+  private presentationLane(index: number) {
+    return 0.78 + Math.floor(index / 2) * 1.25 + (index % 2) * 0.53;
   }
 
   private celebrationPosition(index: number, progress: number): THREE.Vector3 {
@@ -3432,25 +3867,29 @@ export class PadelRenderer {
     const start = this.celebrationPosition(index, 1);
     const team = Math.floor(index / 2),
       end = this.benchEnd(team);
-    const side = Math.sign(start.x) || (index % 2 ? -1 : 1);
-    const doorZ =
-      (Math.sign(start.z || (team === 0 ? 1 : -1)) *
-        (COURT.doorMinZ + COURT.doorMaxZ)) /
-      2;
-    const lane = 0.78 + team * 0.88;
+    const side = this.endsSwapped ? -1 : 1;
+    const doorZ = this.doorwayZ(
+      index,
+      Math.sign(start.z || (team === 0 ? 1 : -1)),
+    );
+    const lane = this.presentationLane(index);
     const outsideX = side * (COURT.halfWidth + lane);
     const route = [start];
     if (Math.abs(start.x) < COURT.halfWidth) {
       // All wall crossings occur inside the real 1.1m doorway.
       route.push(new THREE.Vector3(side * (COURT.halfWidth - 0.55), 0, doorZ));
       route.push(new THREE.Vector3(outsideX, 0, doorZ));
-    } else {
+    } else if (Math.sign(start.x) === side) {
       route.push(new THREE.Vector3(outsideX, 0, start.z));
+    } else {
+      // A player finishing outside the opposite wall walks around an end,
+      // never through either glass wall to reach the common bench side.
+      const aroundEnd = Math.sign(start.z || 1) * (COURT.halfLength + 1.35);
+      route.push(new THREE.Vector3(start.x, 0, aroundEnd));
+      route.push(new THREE.Vector3(outsideX, 0, aroundEnd));
     }
-    route.push(new THREE.Vector3(outsideX, 0, end * (COURT.halfLength + 1.35)));
-    route.push(
-      new THREE.Vector3(index % 2 ? 0.72 : -0.72, 0, end * this.benchDepth),
-    );
+    route.push(new THREE.Vector3(outsideX, 0, end * this.benchZ));
+    route.push(this.benchPosition(end, index % 2 ? 0.72 : -0.72));
     return route;
   }
 
@@ -3500,6 +3939,7 @@ export class PadelRenderer {
     rig.rightAnkle.rotation.set(0.06, 0, 0);
     rig.racket.rotation.set(Math.PI + 0.12, 0, -rig.hand * 0.06);
     rig.ring.visible = false;
+    rig.bottle.visible = false;
     rig.feetReady = false;
   }
 
@@ -3539,9 +3979,9 @@ export class PadelRenderer {
     index: number,
     progress: number,
   ) {
-    rig.root.rotation.y = end > 0 ? 0 : Math.PI;
+    rig.root.rotation.y = this.benchFacing();
     const sit = THREE.MathUtils.smoothstep(progress, 0, 0.12);
-    rig.body.position.y = THREE.MathUtils.lerp(0.87, 0.6 / rig.bodyScale, sit);
+    rig.body.position.y = THREE.MathUtils.lerp(0.87, 0.56 / rig.bodyScale, sit);
     rig.body.rotation.x = -0.16 - stress * 0.14;
     rig.chest.rotation.y = (index % 2 ? 1 : -1) * 0.1;
     rig.head.rotation.x = -0.08 + stress * 0.13;
@@ -3556,7 +3996,7 @@ export class PadelRenderer {
       ankle.rotation.set(0.08, 0, 0);
     }
     if (sit > 0.95) {
-      // Seat top is .54m; hip center .60m. Feet solve to the actual floor for every height.
+      // Seat top .475m and pelvis near .57m expose the supported thighs; feet meet the floor at every height.
       rig.root.updateMatrixWorld(true);
       for (const side of [-1, 1]) {
         const foot = rig.root.localToWorld(
@@ -3570,7 +4010,9 @@ export class PadelRenderer {
       }
     }
     const lebron = rig.profile.id.includes('lebron');
-    const emotion = lebron ? this.presentation!.lebronIntensity : stress * 0.38;
+    const emotion = lebron
+      ? (this.presentation?.lebronIntensity ?? stress)
+      : stress * 0.38;
     const beat = Math.max(0, Math.sin(progress * 27 + index));
     // Open, directed gestures alternate with listening; no opponent abuse or cloned mannerisms.
     this.poseArm(
@@ -3600,6 +4042,48 @@ export class PadelRenderer {
       rig.head.rotation.y += Math.sin(progress * 29) * emotion * 0.15;
       rig.chest.rotation.y += Math.sin(progress * 15) * emotion * 0.09;
     }
+    if (index < 4 && progress > 0.16) {
+      // Alternate short drinks with listening. The bottle grip and mouth share
+      // the same world-space IK targets, so it never floats beside the hand.
+      const drinkStart = index % 2 ? 0.52 : 0.24;
+      const lift =
+        THREE.MathUtils.smoothstep(progress, drinkStart, drinkStart + 0.09) *
+        (1 -
+          THREE.MathUtils.smoothstep(
+            progress,
+            drinkStart + 0.18,
+            drinkStart + 0.28,
+          ));
+      rig.head.rotation.x -= lift * 0.08;
+      rig.root.updateMatrixWorld(true);
+      const mouth = rig.head.localToWorld(new THREE.Vector3(0, -0.065, -0.108));
+      const drinkDirection = new THREE.Vector3(rig.hand * 0.06, 0.64, 0.77)
+        .normalize()
+        .applyQuaternion(rig.upper.getWorldQuaternion(new THREE.Quaternion()));
+      const drinkingGrip = mouth
+        .clone()
+        .addScaledVector(drinkDirection, -0.1475);
+      const worldWrist = rig.upper
+        .localToWorld(new THREE.Vector3(-rig.hand * 0.2, 0.12, -0.31))
+        .lerp(drinkingGrip, lift);
+      this.anchorHand(rig, -rig.hand, worldWrist);
+      rig.root.updateMatrixWorld(true);
+      const upright = new THREE.Vector3(0, 1, 0);
+      const direction = upright.clone().lerp(drinkDirection, lift).normalize();
+      const orientation = new THREE.Quaternion().setFromUnitVectors(
+        upright,
+        direction,
+      );
+      rig.bottle.position.copy(rig.root.worldToLocal(worldWrist.clone()));
+      rig.bottle.quaternion.copy(
+        rig.root
+          .getWorldQuaternion(new THREE.Quaternion())
+          .invert()
+          .multiply(orientation),
+      );
+      rig.bottle.visible = true;
+    }
+    void end;
   }
 
   private restoreSignature(rig: Rig) {
@@ -3826,37 +4310,72 @@ export class PadelRenderer {
       this.signatureActiveId = -1;
     }
     for (let team = 0; team < this.coaches.length; team++) {
-      const rig = this.coaches[team],
-        end = team === 0 ? 1 : -1;
+      const rig = this.coaches[team];
+      // Coach identities belong to a fixed physical bench, regardless of ends.
+      const flip = this.endsSwapped ? -1 : 1;
+      const end = (team === 0 ? 1 : -1) * flip;
       this.relaxedPose(rig);
-      rig.root.position.set(-1.75, 0, end * (this.benchDepth - 1.15));
-      rig.root.rotation.y = Math.atan2(-1.75, -end * 1.15);
+      const seat = this.benchPosition(end, -1.72);
+      rig.root.position.copy(seat);
+      this.sitOnBench(rig, end, 0.05, 4 + team, 1);
       rig.racket.visible = false;
-      rig.shadow.position.set(rig.root.position.x, 0.033, rig.root.position.z);
       const focusEnd = p ? this.benchEnd(p.focusTeam ?? 0) : 0;
       if (p?.phase === 'bench' && end === focusEnd) {
+        const rise =
+          THREE.MathUtils.smoothstep(p.progress, 0.05, 0.2) *
+          (1 - THREE.MathUtils.smoothstep(p.progress, 0.89, 1));
+        rig.root.position.x -= flip * rise * 0.98;
+        rig.root.position.z -= flip * rise * 0.15;
+        const listeners = this.benchPosition(end, 0);
+        const facingListeners = Math.atan2(
+          rig.root.position.x - listeners.x,
+          rig.root.position.z - listeners.z,
+        );
+        const turn = Math.atan2(
+          Math.sin(facingListeners - this.benchFacing()),
+          Math.cos(facingListeners - this.benchFacing()),
+        );
+        rig.root.rotation.y = this.benchFacing() + turn * rise;
+        rig.body.position.y = THREE.MathUtils.lerp(
+          0.56 / rig.bodyScale,
+          0.87,
+          rise,
+        );
+        rig.body.rotation.x = -0.1;
+        rig.head.rotation.x = -0.03;
+        rig.root.updateMatrixWorld(true);
+        for (const side of [-1, 1]) {
+          const foot = rig.root.localToWorld(
+            new THREE.Vector3(
+              side * 0.2,
+              0.0755 - 0.005 / rig.bodyScale,
+              THREE.MathUtils.lerp(-0.42 / rig.bodyScale, -0.035, rise),
+            ),
+          );
+          this.solveLeg(rig, side, foot);
+        }
         const beat = Math.sin(p.progress * 25);
         this.poseArm(
           rig,
           true,
-          new THREE.Vector3(rig.hand * 0.28, 0.45, -0.15),
+          new THREE.Vector3(rig.hand * 0.28, 0.43, -0.15),
           new THREE.Vector3(
             rig.hand * (0.2 + beat * 0.1),
-            0.48 + beat * 0.065,
-            -0.44,
+            0.44 + beat * 0.07,
+            -0.43,
           ),
-          1,
+          rise,
         );
         this.poseArm(
           rig,
           false,
-          new THREE.Vector3(-rig.hand * 0.28, 0.42, -0.16),
-          new THREE.Vector3(-rig.hand * 0.25, 0.36, -0.38),
-          1,
+          new THREE.Vector3(-rig.hand * 0.28, 0.4, -0.16),
+          new THREE.Vector3(-rig.hand * 0.25, 0.32, -0.35),
+          rise,
         );
         rig.head.rotation.y = Math.sin(p.progress * 8) * 0.24;
-        rig.body.rotation.x = -0.07;
       }
+      rig.shadow.position.set(rig.root.position.x, 0.033, rig.root.position.z);
     }
     if (!p) {
       this.presentationId = -1;
@@ -3947,17 +4466,17 @@ export class PadelRenderer {
         const target = this.presentationStarts[i].clone();
         if (p.changeEnds) target.multiplyScalar(-1);
         const side = Math.sign(source[2]?.x ?? target.x) || 1;
-        const doorZ = (end * (COURT.doorMinZ + COURT.doorMaxZ)) / 2;
+        const doorZ = this.doorwayZ(i, end);
         const exit = new THREE.Vector3(
-          side * (COURT.halfWidth + 0.78 + team * 0.88),
+          side * (COURT.halfWidth + this.presentationLane(i)),
           0,
-          end * (COURT.halfLength + 1.35),
+          end * this.benchZ,
         );
         const returning = [
           route[0],
           exit,
           new THREE.Vector3(
-            side * (COURT.halfWidth + 0.78 + team * 0.88),
+            side * (COURT.halfWidth + this.presentationLane(i)),
             0,
             doorZ,
           ),
@@ -4568,9 +5087,18 @@ export class PadelRenderer {
           this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, 47, reaction);
         }
       } else if (p.phase === 'bench') {
-        this.desiredTarget.set(0, 1.13, end * (this.benchDepth - 0.4));
-        this.desiredCamera.set(3.3, 2.0, end * (this.benchDepth - 4.7));
-        this.camera.fov = narrow ? 57 : 42;
+        const flip = this.endsSwapped ? -1 : 1;
+        this.desiredTarget.set(
+          this.benchX * flip - flip * 0.38,
+          1.13,
+          end * this.benchZ + flip * 0.3,
+        );
+        this.desiredCamera.set(
+          (this.benchX - 4.6) * flip,
+          2.3,
+          end * this.benchZ - flip * 2.8,
+        );
+        this.camera.fov = narrow ? 57 : 43;
       } else if (p.phase === 'celebration') {
         const focus = p.winnerTeam ?? team;
         const first = this.rigs[focus * 2].root.position;
@@ -4594,14 +5122,11 @@ export class PadelRenderer {
               .multiplyScalar(distance),
           );
       } else {
-        const focus = this.rigs[team * 2].root.position
-          .clone()
-          .add(this.rigs[team * 2 + 1].root.position)
-          .multiplyScalar(0.5);
-        this.desiredTarget.set(focus.x * 0.3, 0.9, focus.z * 0.45);
-        const facingEnd = p.changeEnds ? -1 : 1;
-        this.desiredCamera.set(1.5, 10, facingEnd * 20.5);
-        this.camera.fov = narrow ? 61 : 47;
+        // Wide sideline view reveals both fixed team areas and all court routes.
+        const flip = this.endsSwapped ? -1 : 1;
+        this.desiredTarget.set(4.8 * flip, 0.8, 0);
+        this.desiredCamera.set(7 * flip, 13, 24 * flip);
+        this.camera.fov = narrow ? 65 : 49;
       }
     }
     if (this.resumeCamera && !p) {

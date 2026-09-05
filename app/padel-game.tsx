@@ -32,17 +32,21 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Slider } from '@/components/ui/slider';
 import {
   PadelMatch,
+  TRAINING_DRILLS,
+  type TrainingDrill,
+  type TrainingDrillId,
   type GameState,
   type Input,
   type Shot,
 } from '@/game/physics';
 import { PadelRenderer } from '@/game/renderer';
+import { createDemoMatch } from '@/game/demo-match';
 import {
   MatchPresentation,
   type PresentationState,
 } from '@/game/match-presentation';
 import { PadelAudio } from '@/game/audio';
-import { TEAMS, VENUES, SHOTS } from '@/game/catalog';
+import { VENUES, SHOTS } from '@/game/catalog';
 import { familyShot } from '@/game/controls';
 import { VictoryCombo, VICTORY_SEQUENCE } from '@/game/victory-combo';
 import {
@@ -61,7 +65,14 @@ import {
   type ControlBindings,
   type ControlScheme,
 } from '@/game/control-mapping';
-import { matchAppearances, teamAppearances } from '@/game/player-profiles';
+import {
+  matchAppearances,
+  teamAppearances,
+  circuitTeams,
+  circuitRounds,
+  circuitOpponents,
+  type Circuit,
+} from '@/game/circuit-roster';
 import {
   sampleSmashCharge,
   PERFECT_CENTER,
@@ -72,6 +83,7 @@ import {
 type Screen = 'menu' | 'play' | 'pause' | 'help' | 'result';
 type Mode = 'partido' | 'circuito' | 'entrenamiento';
 type Settings = {
+  circuit: Circuit;
   team: number;
   opponent: number;
   venue: number;
@@ -86,6 +98,7 @@ type Settings = {
   vibration: boolean;
 };
 const DEFAULTS: Settings = {
+  circuit: 'masculino',
   team: 0,
   opponent: 1,
   venue: 0,
@@ -107,7 +120,6 @@ const BASE_INPUT: Input = {
   power: 0.6,
   aim: 0,
 };
-const ROUND_NAMES = ['Cuartos de final', 'Semifinal', 'Final'];
 function Choice({
   label,
   value,
@@ -169,6 +181,7 @@ export default function PadelGame() {
   const [victoryProgress, setVictoryProgress] = useState(0);
   const scene = useRef<PresentationState | null>(null);
   const training = useRef(false);
+  const trainingExercise = useRef<TrainingDrill | undefined>(undefined);
   const roster = useRef<string[]>([]);
   const [presentation, setPresentation] = useState<PresentationState | null>(
     null,
@@ -214,6 +227,8 @@ export default function PadelGame() {
   const [error, setError] = useState('');
   const [state, setState] = useState<GameState | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
+  const teams = circuitTeams(settings.circuit);
+  const roundNames = circuitRounds(settings.circuit);
   const settingsRef = useRef(DEFAULTS);
   const [mode, setMode] = useState<Mode>('partido');
   const [shot, setShot] = useState<Shot>('plano');
@@ -228,9 +243,7 @@ export default function PadelGame() {
   const [exteriorReturn, setExteriorReturn] = useState<
     'auto' | 'puerta' | 'alta' | 'red'
   >('auto');
-  const [drill, setDrill] = useState<
-    'libre' | 'pared' | 'doble-pared' | 'remate'
-  >('libre');
+  const [drill, setDrill] = useState<TrainingDrillId>('libre');
   const [muted, setMuted] = useState(false);
   const [round, setRound] = useState(0);
   const [tournamentOpponents, setTournamentOpponents] = useState<number[]>([
@@ -421,6 +434,21 @@ export default function PadelGame() {
         setSettings({
           ...DEFAULTS,
           ...saved,
+          circuit: saved.circuit === 'femenino' ? 'femenino' : 'masculino',
+          team: Math.max(
+            0,
+            Math.min(
+              circuitTeams(saved.circuit).length - 1,
+              Number(saved.team) || 0,
+            ),
+          ),
+          opponent: Math.max(
+            0,
+            Math.min(
+              circuitTeams(saved.circuit).length - 1,
+              Number(saved.opponent) || 1,
+            ),
+          ),
           controlScheme:
             saved.controlScheme === 'clasico' ? 'clasico' : 'simple',
           bindings: bindingsForScheme(
@@ -438,15 +466,19 @@ export default function PadelGame() {
   }, []);
   useEffect(() => {
     if (screenRef.current !== 'menu' || !renderer.current) return;
-    const profiles = matchAppearances(settings.team, settings.opponent);
+    const profiles = matchAppearances(
+      settings.team,
+      settings.opponent,
+      settings.circuit,
+    );
     renderer.current.setPlayers(profiles);
-    match.current = new PadelMatch({
-      autoPlay: true,
-      gamesToWin: 3,
-      setsToWin: 1,
-      playerProfiles: profiles,
-    });
-  }, [settings.team, settings.opponent]);
+    director.current.reset();
+    scene.current = null;
+    setPresentation(null);
+    training.current = false;
+    roster.current = profiles.map((profile) => profile.id);
+    match.current = createDemoMatch(profiles);
+  }, [settings.team, settings.opponent, settings.circuit]);
   useEffect(() => {
     if (!host.current) return;
     let raf = 0;
@@ -469,19 +501,17 @@ export default function PadelGame() {
         players: matchAppearances(
           settingsRef.current.team,
           settingsRef.current.opponent,
+          settingsRef.current.circuit,
         ),
       });
       renderer.current.setCamera(settingsRef.current.camera);
-      match.current = new PadelMatch({
-        autoPlay: true,
-        difficulty: 'normal',
-        gamesToWin: 3,
-        setsToWin: 1,
-        playerProfiles: matchAppearances(
-          settingsRef.current.team,
-          settingsRef.current.opponent,
-        ),
-      });
+      const profiles = matchAppearances(
+        settingsRef.current.team,
+        settingsRef.current.opponent,
+        settingsRef.current.circuit,
+      );
+      roster.current = profiles.map((profile) => profile.id);
+      match.current = createDemoMatch(profiles);
       audio.current = new PadelAudio();
       setReady(true);
     } catch (e) {
@@ -597,7 +627,14 @@ export default function PadelGame() {
       if (action === 'quick') {
         combos.current.reset();
         victoryCombo.current.reset();
-        fireStroke(familyShot('base', current));
+        const practiced = training.current
+          ? trainingExercise.current?.targetShot
+          : null;
+        fireStroke(
+          practiced && practiced !== 'saque'
+            ? practiced
+            : familyShot('base', current),
+        );
         return;
       }
       if (
@@ -792,7 +829,10 @@ export default function PadelGame() {
         screenRef.current === 'play' || screenRef.current === 'menu';
       if (active) {
         while (accumulator >= 1 / 120) {
-          if (screenRef.current === 'play' && director.current.active) {
+          if (
+            (screenRef.current === 'play' || screenRef.current === 'menu') &&
+            director.current.active
+          ) {
             accumulator = 0;
             break;
           }
@@ -837,7 +877,10 @@ export default function PadelGame() {
             1 / 120,
             screenRef.current === 'menu' ? BASE_INPUT : command,
           );
-          if (screenRef.current === 'play' && !training.current) {
+          if (
+            screenRef.current === 'menu' ||
+            (screenRef.current === 'play' && !training.current)
+          ) {
             const wasPresenting = director.current.active;
             scene.current = director.current.update(
               m.getState(),
@@ -859,7 +902,10 @@ export default function PadelGame() {
         }
       } else accumulator = 0;
       const s = m.getState();
-      if (screenRef.current === 'play' && !training.current) {
+      if (
+        screenRef.current === 'menu' ||
+        (screenRef.current === 'play' && !training.current)
+      ) {
         const wasActive = director.current.active;
         scene.current = director.current.update(s, dt, roster.current);
         if (wasActive && !director.current.active && s.phase === 'point')
@@ -914,16 +960,21 @@ export default function PadelGame() {
           pointTimer = 0;
         }
       } else pointTimer = 0;
-      if (screenRef.current === 'menu' && s.phase === 'finished')
-        match.current = new PadelMatch({
-          autoPlay: true,
-          gamesToWin: 3,
-          setsToWin: 1,
-          playerProfiles: matchAppearances(
-            settingsRef.current.team,
-            settingsRef.current.opponent,
-          ),
-        });
+      if (
+        screenRef.current === 'menu' &&
+        s.phase === 'finished' &&
+        !director.current.active
+      ) {
+        director.current.reset();
+        scene.current = null;
+        const profiles = matchAppearances(
+          settingsRef.current.team,
+          settingsRef.current.opponent,
+          settingsRef.current.circuit,
+        );
+        roster.current = profiles.map((profile) => profile.id);
+        match.current = createDemoMatch(profiles);
+      }
       if (
         screenRef.current === 'play' &&
         s.phase === 'finished' &&
@@ -1081,7 +1132,7 @@ export default function PadelGame() {
     if (mode === 'circuito' && state?.winner === 0) {
       const score = state.score.history.map((p) => p.join('–')).join(' / ');
       setRoundResults((p) => [...p, score]);
-      if (round === 2) {
+      if (round === roundNames.length - 1) {
         setWins((w) => {
           try {
             localStorage.setItem('premier-padel-trophies', String(w + 1));
@@ -1090,7 +1141,7 @@ export default function PadelGame() {
         });
       }
     }
-  }, [screen, state, mode, round]);
+  }, [screen, state, mode, round, roundNames.length]);
   const start = (
     nextRound = 0,
     chosenMode: Mode = mode,
@@ -1109,14 +1160,7 @@ export default function PadelGame() {
       chosenMode === 'circuito'
         ? nextRound === 0
           ? (() => {
-              const pool = TEAMS.map((_, i) => i).filter(
-                (i) => i !== settings.team,
-              );
-              const list = [
-                pool[pool.length - 1],
-                pool[Math.min(3, pool.length - 1)],
-                pool[0],
-              ];
+              const list = circuitOpponents(settings.circuit, settings.team);
               setTournamentOpponents(list);
               return list[0];
             })()
@@ -1126,7 +1170,7 @@ export default function PadelGame() {
     setRound(nextRound);
     if (nextRound === 0) setRoundResults([]);
     resultRecorded.current = false;
-    const profiles = matchAppearances(settings.team, opp);
+    const profiles = matchAppearances(settings.team, opp, settings.circuit);
     roster.current = profiles.map((profile) => profile.id);
     renderer.current?.setPlayers(profiles);
     match.current = new PadelMatch({
@@ -1137,20 +1181,32 @@ export default function PadelGame() {
       drill: chosenDrill,
       playerProfiles: profiles,
     });
+    const exercise: TrainingDrill | undefined = TRAINING_DRILLS.find(
+      (d) => d.id === chosenDrill,
+    );
+    trainingExercise.current =
+      chosenMode === 'entrenamiento' ? exercise : undefined;
     const openingShot: Shot =
-      chosenMode === 'entrenamiento' && chosenDrill === 'remate'
-        ? 'remate'
+      chosenMode === 'entrenamiento' &&
+      exercise?.targetShot &&
+      exercise.targetShot !== 'saque'
+        ? exercise.targetShot
         : 'plano';
+    const openingSmash =
+      chosenMode === 'entrenamiento'
+        ? (exercise?.smash ?? 'retorno')
+        : 'retorno';
     input.current = {
       ...BASE_INPUT,
       shot: openingShot,
-      smash: 'retorno',
+      smash: openingSmash,
+      waitWall: chosenMode === 'entrenamiento' && !!exercise?.waitWall,
       exteriorReturn: 'auto',
     };
     setExteriorReturn('auto');
     setShot(openingShot);
-    setSmash('retorno');
-    setWaitWall(false);
+    setSmash(openingSmash);
+    setWaitWall(chosenMode === 'entrenamiento' && !!exercise?.waitWall);
     setState(JSON.parse(JSON.stringify(match.current.getState())));
     setShowSettings(false);
     setShowBracket(false);
@@ -1158,14 +1214,18 @@ export default function PadelGame() {
   };
   startFromKeyboard.current = () => start(0, 'partido');
   const menu = () => {
-    const profiles = matchAppearances(settings.team, settings.opponent);
+    const profiles = matchAppearances(
+      settings.team,
+      settings.opponent,
+      settings.circuit,
+    );
     renderer.current?.setPlayers(profiles);
-    match.current = new PadelMatch({
-      autoPlay: true,
-      gamesToWin: 3,
-      setsToWin: 1,
-      playerProfiles: profiles,
-    });
+    director.current.reset();
+    scene.current = null;
+    setPresentation(null);
+    training.current = false;
+    roster.current = profiles.map((profile) => profile.id);
+    match.current = createDemoMatch(profiles);
     changeScreen('menu');
   };
   const selectShot = (id: Shot) => {
@@ -1245,8 +1305,8 @@ export default function PadelGame() {
     return keyLabel(settings.bindings.keyboard[action[id]]);
   };
   const venue = VENUES[settings.venue];
-  const playerTeam = TEAMS[settings.team] ?? TEAMS[0];
-  const opponent = TEAMS[matchOpponent] ?? TEAMS[1];
+  const playerTeam = teams[settings.team] ?? teams[0];
+  const opponent = teams[matchOpponent] ?? teams[1];
   const onTouchMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
     const r = e.currentTarget.getBoundingClientRect();
@@ -1288,7 +1348,7 @@ export default function PadelGame() {
             </a>
             <div className="edition">
               <span className="status-dot" />
-              EDICIÓN JUGABLE<span className="edition-sep">/</span>07
+              EDICIÓN JUGABLE<span className="edition-sep">/</span>08
             </div>
             <button
               className="icon-button"
@@ -1326,7 +1386,7 @@ export default function PadelGame() {
                   {
                     id: 'circuito',
                     title: 'Torneo',
-                    sub: 'Comenzar torneo de tres rondas.',
+                    sub: `Comenzar torneo de ${roundNames.length === 2 ? 'dos' : 'tres'} rondas.`,
                     icon: Trophy,
                   },
                   {
@@ -1353,6 +1413,22 @@ export default function PadelGame() {
               ))}
             </div>
             <div className="menu-setup">
+              <div
+                className="circuit-selector"
+                role="group"
+                aria-label="Circuito"
+              >
+                {(['masculino', 'femenino'] as const).map((circuit) => (
+                  <button
+                    key={circuit}
+                    aria-pressed={settings.circuit === circuit}
+                    disabled={!ready || !!error}
+                    onClick={() => config({ circuit, team: 0, opponent: 1 })}
+                  >
+                    {circuit === 'masculino' ? 'Masculino' : 'Femenino'}
+                  </button>
+                ))}
+              </div>
               <Choice
                 label="Tu pareja"
                 value={String(settings.team)}
@@ -1362,11 +1438,11 @@ export default function PadelGame() {
                     team,
                     opponent:
                       team === settings.opponent
-                        ? (team + 1) % TEAMS.length
+                        ? (team + 1) % teams.length
                         : settings.opponent,
                   });
                 }}
-                items={TEAMS.map((t, i) => ({
+                items={teams.map((t, i) => ({
                   value: String(i),
                   label: t.name,
                 }))}
@@ -1379,7 +1455,7 @@ export default function PadelGame() {
                 className="player-traits"
                 aria-label="Jugadores de tu pareja"
               >
-                {teamAppearances(settings.team).map((p) => (
+                {teamAppearances(settings.team, settings.circuit).map((p) => (
                   <span key={p.id}>
                     <i
                       style={{
@@ -1391,7 +1467,13 @@ export default function PadelGame() {
                       <b>{p.surname}</b>
                       <small>
                         {p.height.toFixed(2).replace('.', ',')} m ·{' '}
-                        {p.handedness === 'left' ? 'Zurdo' : 'Diestro'}
+                        {p.handedness === 'left'
+                          ? p.gender === 'female'
+                            ? 'Zurda'
+                            : 'Zurdo'
+                          : p.gender === 'female'
+                            ? 'Diestra'
+                            : 'Diestro'}
                       </small>
                     </span>
                   </span>
@@ -1450,6 +1532,22 @@ export default function PadelGame() {
               ))}
             </div>
           </div>
+          {presentation &&
+            ['walk', 'bench', 'return'].includes(presentation.phase) && (
+              <aside className="demo-break" aria-live="polite">
+                <small>DEMOSTRACIÓN · PARTIDO EN CURSO</small>
+                <strong>
+                  {presentation.phase === 'bench'
+                    ? 'Descanso con el entrenador'
+                    : presentation.phase === 'walk'
+                      ? 'Camino al cambio de lado'
+                      : 'Vuelta a la pista'}
+                </strong>
+                {presentation.phase === 'bench' && (
+                  <span>Jugadores sentados · hidratación · conversación</span>
+                )}
+              </aside>
+            )}
           <footer className="menu-footer">
             <span>SIMULACIÓN 3D · DOBLES · ESPAÑOL</span>
             <span>
@@ -1469,12 +1567,15 @@ export default function PadelGame() {
           <header className="match-top">
             <div className="scoreboard">
               <div className="score-title">
-                <span>PREMIER PADEL</span>
+                <span>
+                  PREMIER PADEL ·{' '}
+                  {settings.circuit === 'femenino' ? 'FEM' : 'MASC'}
+                </span>
                 <span>
                   {mode === 'entrenamiento'
                     ? 'ENTRENAMIENTO'
                     : mode === 'circuito'
-                      ? ROUND_NAMES[round].toUpperCase()
+                      ? roundNames[round].toUpperCase()
                       : 'EXHIBICIÓN'}
                 </span>
               </div>
@@ -1499,7 +1600,7 @@ export default function PadelGame() {
               <div className="score-foot">
                 <span>
                   {mode === 'entrenamiento'
-                    ? `PRÁCTICA · ${{ libre: 'PELOTEO', pared: 'VIDRIO', 'doble-pared': 'DOBLE PARED', remate: 'REMATE' }[drill]}`
+                    ? `PRÁCTICA · ${(TRAINING_DRILLS.find((d) => d.id === drill)?.label ?? 'Peloteo').toUpperCase()}`
                     : state.score.tieBreak
                       ? 'TIE-BREAK'
                       : state.score.starPoint
@@ -1660,23 +1761,45 @@ export default function PadelGame() {
                   role="group"
                   aria-label="Ejercicio de pádel"
                 >
-                  <span>EJERCICIO</span>
-                  {(
-                    [
-                      { id: 'libre', name: 'Peloteo' },
-                      { id: 'pared', name: 'Vidrio' },
-                      { id: 'doble-pared', name: 'Doble pared' },
-                      { id: 'remate', name: 'Remate' },
-                    ] as const
-                  ).map((d) => (
-                    <button
-                      key={d.id}
-                      className={drill === d.id ? 'active' : ''}
-                      onClick={() => start(0, 'entrenamiento', d.id)}
+                  <label htmlFor="training-exercise">PRACTICÁ UN GOLPE</label>
+                  <Select
+                    value={drill}
+                    onValueChange={(value) => {
+                      if (value)
+                        start(0, 'entrenamiento', value as TrainingDrillId);
+                    }}
+                  >
+                    <SelectTrigger
+                      id="training-exercise"
+                      aria-label="Ejercicio de pádel"
                     >
-                      {d.name}
-                    </button>
-                  ))}
+                      <SelectValue>
+                        {TRAINING_DRILLS.find((d) => d.id === drill)?.label}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TRAINING_DRILLS.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p>
+                    {TRAINING_DRILLS.find((d) => d.id === drill)?.description}
+                    <span className="training-key-hint">
+                      {TRAINING_DRILLS.find((d) => d.id === drill)
+                        ?.targetShot === 'remate'
+                        ? `${controlLabel('smash')}: mantené, apuntá y soltá.`
+                        : `${controlLabel('quick')}: ejecutá el golpe del ejercicio.`}
+                    </span>
+                  </p>
+                  <button
+                    onClick={() => start(0, 'entrenamiento', drill)}
+                    title="Reiniciar el ejercicio"
+                  >
+                    <RotateCcw size={16} /> Reiniciar
+                  </button>
                 </div>
               )}
               <div className="tactical-hint" role="status">
@@ -2142,10 +2265,12 @@ export default function PadelGame() {
                   label="Pareja rival"
                   value={String(settings.opponent)}
                   onChange={(v) => config({ opponent: Number(v) })}
-                  items={TEAMS.map((t, i) => ({
-                    value: String(i),
-                    label: t.name,
-                  })).filter((t) => Number(t.value) !== settings.team)}
+                  items={teams
+                    .map((t, i) => ({
+                      value: String(i),
+                      label: t.name,
+                    }))
+                    .filter((t) => Number(t.value) !== settings.team)}
                 />
                 <div className="settings-grid">
                   <Choice
@@ -2601,12 +2726,14 @@ export default function PadelGame() {
               {state.winner === 0 ? <Trophy size={38} /> : <Target size={38} />}
             </div>
             <span className="eyebrow">
-              {mode === 'circuito' ? ROUND_NAMES[round] : 'PARTIDO TERMINADO'}
+              {mode === 'circuito' ? roundNames[round] : 'PARTIDO TERMINADO'}
             </span>
             <h2>
               {state.winner === 0
-                ? mode === 'circuito' && round === 2
-                  ? 'Campeones.'
+                ? mode === 'circuito' && round === roundNames.length - 1
+                  ? settings.circuit === 'femenino'
+                    ? 'Campeonas.'
+                    : 'Campeones.'
                   : 'El partido es tuyo.'
                 : 'Una más.'}
             </h2>
@@ -2624,9 +2751,11 @@ export default function PadelGame() {
                 </span>
               )}
             </div>
-            {mode === 'circuito' && state.winner === 0 && round < 2 ? (
+            {mode === 'circuito' &&
+            state.winner === 0 &&
+            round < roundNames.length - 1 ? (
               <button className="start-button" onClick={() => start(round + 1)}>
-                JUGAR {ROUND_NAMES[round + 1].toUpperCase()}{' '}
+                JUGAR {roundNames[round + 1].toUpperCase()}{' '}
                 <ArrowRight size={20} />
               </button>
             ) : (
@@ -2641,7 +2770,7 @@ export default function PadelGame() {
               <div className="round-results">
                 {roundResults.map((r, i) => (
                   <span key={i}>
-                    {ROUND_NAMES[i]} <b>{r}</b>
+                    {roundNames[i]} <b>{r}</b>
                   </span>
                 ))}
               </div>
@@ -2667,9 +2796,9 @@ export default function PadelGame() {
             <div className="bracket">
               {tournamentOpponents.map((o, i) => (
                 <div className={round === i ? 'current' : ''} key={i}>
-                  <span>{ROUND_NAMES[i]}</span>
+                  <span>{roundNames[i]}</span>
                   <strong>{playerTeam.name}</strong>
-                  <strong>{TEAMS[o].name}</strong>
+                  <strong>{teams[o].name}</strong>
                   <small>
                     {roundResults[i] ??
                       (i === round ? 'EN JUEGO' : 'PRÓXIMO RIVAL')}

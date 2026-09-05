@@ -18,6 +18,176 @@ export type Shot =
   | 'contrapared';
 export type Smash = 'retorno' | 'por3' | 'por4' | 'alto';
 export type ExteriorReturn = 'auto' | 'puerta' | 'alta' | 'red';
+export type TrainingFeed =
+  | 'rally'
+  | 'serve'
+  | 'ground'
+  | 'volley'
+  | 'lob'
+  | 'wall'
+  | 'double-wall'
+  | 'exterior';
+export interface TrainingDrill {
+  id: string;
+  label: string;
+  description: string;
+  targetShot: Shot | 'saque' | null;
+  feedBehavior: TrainingFeed;
+  smash?: Smash;
+  waitWall?: boolean;
+}
+/** Prepared feeds use the regular flight, contact and collision simulation. */
+export const TRAINING_DRILLS = [
+  {
+    id: 'libre',
+    label: 'Peloteo libre',
+    description: 'Devolvé el saque y construí el punto con tu compañero.',
+    targetShot: null,
+    feedBehavior: 'rally',
+  },
+  {
+    id: 'saque',
+    label: 'Saque de abajo',
+    description:
+      'Picá, sacá cruzado bajo la cintura y acompañá a tu compañero a la red.',
+    targetShot: 'saque',
+    feedBehavior: 'serve',
+  },
+  {
+    id: 'plano',
+    label: 'Derecha y revés',
+    description:
+      'Esperá el pique. Contactá delante del cuerpo y recuperá el fondo.',
+    targetShot: 'plano',
+    feedBehavior: 'ground',
+  },
+  {
+    id: 'volea',
+    label: 'Volea',
+    description: 'En la red, bloqueá delante del cuerpo antes del pique.',
+    targetShot: 'volea',
+    feedBehavior: 'volley',
+  },
+  {
+    id: 'globo',
+    label: 'Globo',
+    description: 'Desde el fondo, pasá a los rivales antes de subir en pareja.',
+    targetShot: 'globo',
+    feedBehavior: 'ground',
+  },
+  {
+    id: 'bandeja',
+    label: 'Bandeja',
+    description:
+      'Perfilate, contactá a la altura de los ojos y recuperá la red.',
+    targetShot: 'bandeja',
+    feedBehavior: 'lob',
+  },
+  {
+    id: 'vibora',
+    label: 'Víbora',
+    description:
+      'Perfilate y acelerá por el costado para producir un rebote bajo.',
+    targetShot: 'vibora',
+    feedBehavior: 'lob',
+  },
+  {
+    id: 'remate',
+    label: 'Remate · Traérmela',
+    description: 'Cargá y apuntá: pique, vidrio de fondo y vuelta a tu campo.',
+    targetShot: 'remate',
+    feedBehavior: 'lob',
+    smash: 'retorno',
+  },
+  {
+    id: 'remate-por3',
+    label: 'Remate · Por 3',
+    description:
+      'Buscá el ángulo lateral después del pique. El rival puede salir a rescatar.',
+    targetShot: 'remate',
+    feedBehavior: 'lob',
+    smash: 'por3',
+  },
+  {
+    id: 'remate-por4',
+    label: 'Remate · Por 4',
+    description:
+      'Cerca de la red, impactá alto para superar el fondo después del pique.',
+    targetShot: 'remate',
+    feedBehavior: 'lob',
+    smash: 'por4',
+  },
+  {
+    id: 'remate-alto',
+    label: 'Remate · Paralelo alto',
+    description:
+      'Impactá arriba y en paralelo: el pique debe elevarse lejos del rival.',
+    targetShot: 'remate',
+    feedBehavior: 'lob',
+    smash: 'alto',
+  },
+  {
+    id: 'dejada',
+    label: 'Dejada',
+    description:
+      'Desde la red, amortiguá una pelota cómoda para dejarla corta.',
+    targetShot: 'dejada',
+    feedBehavior: 'volley',
+  },
+  {
+    id: 'chiquita',
+    label: 'Chiquita',
+    description:
+      'Jugá lento a los pies; avanzá cuando el rival tenga que levantarla.',
+    targetShot: 'chiquita',
+    feedBehavior: 'ground',
+  },
+  {
+    id: 'bajada',
+    label: 'Bajada de pared',
+    description:
+      'Dejá pasar el vidrio y atacá la salida alta con el peso hacia delante.',
+    targetShot: 'bajada',
+    feedBehavior: 'wall',
+    waitWall: true,
+  },
+  {
+    id: 'contrapared',
+    label: 'Contrapared',
+    description:
+      'De espaldas a la red, elevá contra tu vidrio para ganar tiempo.',
+    targetShot: 'contrapared',
+    feedBehavior: 'wall',
+    waitWall: true,
+  },
+  {
+    id: 'pared',
+    label: 'Salida de pared',
+    description:
+      'Dejá pasar al vidrio y acompañá la pelota después de un único pique.',
+    targetShot: 'globo',
+    feedBehavior: 'wall',
+    waitWall: true,
+  },
+  {
+    id: 'doble-pared',
+    label: 'Doble pared',
+    description:
+      'Esperá los dos vidrios, abrí espacio y devolvé antes del segundo pique.',
+    targetShot: 'globo',
+    feedBehavior: 'double-wall',
+    waitWall: true,
+  },
+  {
+    id: 'rescate',
+    label: 'Rescate exterior',
+    description:
+      'Salí por la puerta tras el por 3; apuntá de vuelta por la puerta, arriba o a la red.',
+    targetShot: 'plano',
+    feedBehavior: 'exterior',
+  },
+] as const satisfies readonly TrainingDrill[];
+export type TrainingDrillId = (typeof TRAINING_DRILLS)[number]['id'];
 export type Team = 0 | 1;
 export type TimingQuality = 'perfect' | 'good' | 'late';
 export interface Input {
@@ -177,7 +347,7 @@ export interface MatchOptions {
   training?: boolean;
   autoPlay?: boolean;
   scoring?: 'ventaja' | 'star';
-  drill?: 'libre' | 'pared' | 'doble-pared' | 'remate';
+  drill?: TrainingDrillId;
   exteriorPlay?: boolean;
   playerProfiles?: Array<{
     height: number;
@@ -862,6 +1032,15 @@ export class PadelMatch {
   private reactionUntil = 0;
   private wallTime = -10;
   private teamDepth: [number, number] = [3.2, 7.2];
+  private netControl: [boolean, boolean] = [true, false];
+  private pressureTeam: Team | null = null;
+  private tacticalFlight: {
+    team: Team;
+    shot: Shot;
+    opponentDepth: number;
+    opponentBack: number;
+    advanced: boolean;
+  } | null = null;
   private hitWasDown = false;
   private switchWasDown = false;
   private latestImpact: ContactResult | null = null;
@@ -1232,7 +1411,8 @@ export class PadelMatch {
       const offset = pointCount === 0 ? 0 : Math.floor((pointCount + 1) / 2);
       s.server = this.serviceOrder[(this.tieBreakStartServer + offset) % 4];
     } else s.server = this.serviceOrder[this.gameServerIndex % 4];
-    if (this.options.training) s.server = 2;
+    if (this.options.training)
+      s.server = this.options.drill === 'saque' ? 0 : 2;
     const server = s.players[s.server],
       sign = signFor(server.team);
     this.serveSign = (pointCount % 2 === 0 ? 1 : -1) * sign;
@@ -1255,15 +1435,38 @@ export class PadelMatch {
     s.incomingTeam = opposite(server.team);
     s.needsReceivingSide =
       s.score.starPoint && s.incomingTeam === 0 && !this.options.autoPlay;
+    this.netControl = [false, false];
+    this.netControl[server.team] = true;
+    this.pressureTeam = null;
+    this.tacticalFlight = null;
     this.teamDepth[server.team] = 3.1;
     this.teamDepth[s.incomingTeam] = 7.3;
     s.teamTactics[server.team] = 'red';
     s.teamTactics[s.incomingTeam] = 'defensa';
-    if (this.options.training && this.options.drill !== 'libre') {
+    if (
+      this.options.training &&
+      !['libre', 'saque'].includes(this.options.drill)
+    ) {
       s.players[0].x = this.options.drill === 'doble-pared' ? 3.1 : 1.8;
-      s.players[0].z = this.options.drill === 'remate' ? 3.1 : 7.2;
+      const drill = TRAINING_DRILLS.find(
+        (entry) => entry.id === this.options.drill,
+      )!;
+      const net = ['lob', 'volley', 'exterior'].includes(drill.feedBehavior);
+      s.players[0].z = net ? 3.1 : 7.2;
+      if (
+        this.options.drill === 'remate-por4' ||
+        this.options.drill === 'remate-alto'
+      )
+        s.players[0].z = 1.5;
+      if (this.options.drill === 'rescate') {
+        s.players[0].x = 4.1;
+        s.players[0].z = 1.1;
+      }
       s.players[1].x = -3.7;
-      s.players[1].z = 7.7;
+      s.players[1].z = net ? 3.2 : 7.7;
+      this.teamDepth[0] = net ? 3.1 : 7.2;
+      this.netControl[0] = net;
+      this.netControl[1] = !net;
     }
     this.placeServeBall();
     s.message =
@@ -1276,11 +1479,8 @@ export class PadelMatch {
     if (this.options.training && this.options.drill !== 'libre')
       s.message =
         'Ejercicio · ' +
-        (this.options.drill === 'doble-pared'
-          ? 'Esperá los dos vidrios'
-          : this.options.drill === 'pared'
-            ? 'Dejá pasar al vidrio y acompañá la salida'
-            : 'Globo corto · Prepará tu remate');
+        TRAINING_DRILLS.find((drill) => drill.id === this.options.drill)!
+          .description;
     this.emit('ready');
   }
   private placeServeBall() {
@@ -1304,7 +1504,10 @@ export class PadelMatch {
     const s = this.state,
       p = s.players[s.server];
     if (s.needsReceivingSide) return;
-    if (this.options.training && this.options.drill !== 'libre') {
+    if (
+      this.options.training &&
+      !['libre', 'saque'].includes(this.options.drill)
+    ) {
       if (this.phaseTime > 1.2) this.launchDrill();
       return;
     }
@@ -1497,7 +1700,7 @@ export class PadelMatch {
       if (b.y > p.height + 0.45 && depth < 4.2 && comfortable) return 'remate';
       if (
         b.y > p.height + 0.05 &&
-        depth < 6.4 &&
+        depth < 5.4 &&
         (openWidth > 3.8 || Math.abs(b.x) > 1.6)
       )
         return 'vibora';
@@ -1668,10 +1871,15 @@ export class PadelMatch {
         : this.options.difficulty === 'dificil'
           ? 0.02
           : 0.04;
+    const contactStress =
+      clamp((distance(p, b) - 0.65) / 0.65, 0, 1) * 0.08 +
+      clamp(Math.hypot(p.vx, p.vz) / 5.8, 0, 1) * 0.035 +
+      (b.y < 0.5 ? 0.025 : 0);
     const mishit =
       automatic &&
       s.rally > 3 &&
-      this.random() < errorRate + Math.max(0, s.rally - 18) * 0.002;
+      this.random() <
+        errorRate + contactStress + Math.max(0, s.rally - 18) * 0.002;
     const from = { x: b.x, y: b.y, z: b.z };
     const spin = strokeSpin(from, target, shot, power, aim, smash);
     let launch = solveTrajectory(from, target, t, spin);
@@ -1732,34 +1940,46 @@ export class PadelMatch {
     p.shot = shot;
     p.swing = 1;
     p.preparation = 0;
-    const recoveredNet = [
-      'globo',
-      'bandeja',
-      'vibora',
-      'volea',
-      'remate',
-      'bajada',
-    ].includes(shot);
-    this.teamDepth[p.team] = recoveredNet
-      ? 3.05
-      : shot === 'chiquita'
-        ? 4.45
-        : Math.abs(p.z) > 5
-          ? 6.8
-          : 3.6;
-    this.teamDepth[s.incomingTeam] =
-      shot === 'globo' ? 7.7 : this.teamDepth[s.incomingTeam];
-    s.teamTactics[p.team] = recoveredNet
-      ? 'subida en pareja'
-      : shot === 'chiquita'
-        ? 'transición'
-        : 'defensa';
-    if (shot === 'globo') s.teamTactics[s.incomingTeam] = 'giro y retroceso';
+    // The stroke name does not earn the net. Keep an existing attacking
+    // position, otherwise wait for a ball that actually displaces the rivals.
+    const ownPair = s.players.filter((other) => other.team === p.team);
+    const ownDepth =
+      ownPair.reduce((sum, other) => sum + Math.abs(other.z), 0) / 2;
+    const retainedNet =
+      this.netControl[p.team] &&
+      (ownDepth < 5.8 || ['bandeja', 'vibora'].includes(shot));
+    this.netControl[p.team] =
+      retainedNet || ownPair.every((other) => Math.abs(other.z) < 4.2);
+    this.teamDepth[p.team] = this.netControl[p.team] ? 3.1 : 7.1;
+    s.teamTactics[p.team] = this.netControl[p.team]
+      ? 'recuperar red en pareja'
+      : 'defensa en pareja';
+    if (this.pressureTeam === s.incomingTeam) {
+      // A low, upward reply confirms the chiquita worked. A high attacking
+      // contact cancels the approach, rather than dragging defenders forward.
+      if (s.contactPoint!.y < 1.25 && b.vy > 1.1) {
+        this.netControl[s.incomingTeam] = true;
+        this.teamDepth[s.incomingTeam] = 3.25;
+        s.teamTactics[s.incomingTeam] = 'subida tras devolución baja';
+      } else if (!this.netControl[s.incomingTeam]) {
+        this.teamDepth[s.incomingTeam] = 7.1;
+      }
+      this.pressureTeam = null;
+    }
+    const opposition = s.players.filter((other) => other.team !== p.team);
+    this.tacticalFlight = {
+      team: p.team,
+      shot,
+      opponentDepth:
+        opposition.reduce((sum, other) => sum + Math.abs(other.z), 0) / 2,
+      opponentBack: Math.max(...opposition.map((other) => Math.abs(other.z))),
+      advanced: false,
+    };
     s.tacticalHint =
       shot === 'globo'
-        ? 'Globo profundo: subí con tu compañero'
+        ? 'Leé el globo: subí sólo si pasa a los rivales y los obliga a retroceder'
         : shot === 'chiquita'
-          ? 'A los pies: avanzá detrás de la chiquita'
+          ? 'A los pies: esperá una devolución baja antes de avanzar'
           : shot === 'bandeja'
             ? 'Bandeja profunda: recuperá la red'
             : shot === 'vibora'
@@ -1795,38 +2015,64 @@ export class PadelMatch {
   private launchDrill() {
     const s = this.state,
       p = s.players[2];
+    const drill = TRAINING_DRILLS.find(
+      (entry) => entry.id === this.options.drill,
+    )!;
     s.phase = 'rally';
     this.phaseTime = 0;
     Object.assign(s.ball, {
-      x: this.options.drill === 'doble-pared' ? -0.8 : 1.5,
+      x: drill.feedBehavior === 'double-wall' ? -0.8 : 1.5,
       y: 1.25,
       z: -4.2,
     });
+    if (drill.feedBehavior === 'exterior') {
+      // An actual opponent smash supplies the exercise. The defender starts
+      // inside, then runs through the door using the regular route planner.
+      Object.assign(s.ball, { x: -1.6, y: 2.65, z: -2.7, vy: -1 });
+      p.x = s.ball.x;
+      p.z = s.ball.z;
+      this.hit(p, 'remate', 0.58, 0.9, 'por3');
+      this.netControl[0] = false;
+      s.tacticalHint = drill.description;
+      this.emit('hit', 'Ejercicio · ' + drill.label);
+      return;
+    }
     p.x = s.ball.x;
     p.z = s.ball.z;
-    this.hit(p, this.options.drill === 'remate' ? 'globo' : 'plano', 0.65, 0.4);
+    this.hit(p, drill.feedBehavior === 'lob' ? 'globo' : 'plano', 0.65, 0.4);
     let target = {
-      x: this.options.drill === 'doble-pared' ? 4.32 : 2.05,
+      x: drill.feedBehavior === 'double-wall' ? 4.32 : 2.05,
       z: 8.65,
     };
     let t = 0.82;
-    if (this.options.drill === 'remate') {
-      target = { x: 1.55, z: 3.8 };
+    if (drill.feedBehavior === 'lob') {
+      target = {
+        x: 1.55,
+        z: ['remate-por4', 'remate-alto'].includes(drill.id) ? 2.05 : 3.8,
+      };
       const apex = 5.2;
       t =
         Math.sqrt((2 * (apex - s.ball.y)) / G) +
         Math.sqrt((2 * (apex - R)) / G);
-      this.teamDepth[0] = 3.2;
+      this.teamDepth[0] = target.z < 3 ? 1.55 : 3.2;
+      this.teamDepth[1] = 3.1;
+      this.netControl[1] = true;
+    } else if (drill.feedBehavior === 'ground') {
+      target = { x: 1.8, z: 6.35 };
+      t = 1.15;
+    } else if (drill.feedBehavior === 'volley') {
+      target = { x: 1.75, z: 6.3 };
+      t = 1;
+    } else if (drill.id === 'bajada') {
+      target = { x: 2.05, z: 8.6 };
+      t = 1.88;
     }
     Object.assign(s.ball, solveTrajectory(s.ball, target, t));
     s.predictedBounce = target;
     s.incomingTeam = 0;
     this.plannedPlayer = 0;
-    s.tacticalHint =
-      this.options.drill === 'remate'
-        ? 'Esperá que el globo baje a tu pala'
-        : 'Dejá pasar la pelota y acompañá el rebote del vidrio';
-    this.emit('hit', 'Ejercicio · ' + this.options.drill);
+    s.tacticalHint = drill.description;
+    this.emit('hit', 'Ejercicio · ' + drill.label);
   }
 
   private groundBounce(b: Ball): void {
@@ -2400,6 +2646,69 @@ export class PadelMatch {
     return samples;
   }
 
+  private readNetOpportunity(contact: {
+    x: number;
+    z: number;
+    player: number;
+    t: number;
+  }) {
+    const s = this.state,
+      flight = this.tacticalFlight;
+    if (
+      !flight ||
+      flight.advanced ||
+      flight.team !== this.lastHitter ||
+      flight.shot === 'remate' ||
+      this.serveLive ||
+      s.ballOutside
+    )
+      return;
+    const team = flight.team,
+      receiving = opposite(team),
+      sign = signFor(receiving);
+    const rivals = s.players.filter((p) => p.team === receiving);
+    const depth = s.ball.z * sign;
+    const receiver = s.players[contact.player];
+    const beyondInitialLine = depth > flight.opponentBack + 0.55;
+    const beyondCurrentLine =
+      depth > Math.max(...rivals.map((p) => Math.abs(p.z))) + 0.4;
+    const forcesBack =
+      Math.abs(contact.z) > Math.max(5.8, flight.opponentBack + 1.6);
+    const passed =
+      beyondInitialLine &&
+      forcesBack &&
+      (beyondCurrentLine ||
+        (Math.abs(contact.z) > 7.2 &&
+          s.ball.y > Math.max(...rivals.map((p) => p.height)) + 0.6)) &&
+      s.ball.vz * sign > 0 &&
+      Math.abs(s.predictedBounce.z) < 9.8;
+    if (passed) {
+      flight.advanced = true;
+      this.netControl[team] = true;
+      this.netControl[receiving] = false;
+      this.teamDepth[team] = 3.1;
+      this.teamDepth[receiving] = Math.max(6.6, Math.abs(contact.z) - 0.4);
+      s.teamTactics[team] = 'subida en pareja';
+      s.teamTactics[receiving] = 'giro y retroceso';
+      s.tacticalHint = 'La pelota pasó a los rivales: avanzá con tu compañero';
+    } else if (
+      flight.shot === 'chiquita' &&
+      !this.netControl[team] &&
+      flight.opponentDepth < 4.8 &&
+      depth > 0.5 &&
+      s.ball.y < 0.98 &&
+      s.ball.vy < 0 &&
+      distance(receiver, s.ball) < 1.9
+    ) {
+      flight.advanced = true;
+      this.pressureTeam = team;
+      this.teamDepth[team] = 4.65;
+      s.teamTactics[team] = 'presionar chiquita en pareja';
+      s.tacticalHint =
+        'Chiquita a los pies: avanzá y frená cuando el rival golpee';
+    }
+  }
+
   private getTargets(): Array<{ x: number; z: number }> {
     const s = this.state,
       incoming = opposite(this.lastHitter),
@@ -2467,10 +2776,14 @@ export class PadelMatch {
     }
     const deepBall = Math.abs(s.predictedBounce.z) > 6.8;
     const defending = pair.reduce((sum, p) => sum + Math.abs(p.z), 0) / 2 > 4.8;
-    const lobPassed = s.lastShot === 'globo' && (s.ball.y > 3.05 || defending);
+    const lobPassed =
+      s.lastShot === 'globo' &&
+      s.ball.z * sign > Math.max(...pair.map((p) => Math.abs(p.z))) + 0.4;
     const drillWall =
       this.options.training &&
-      ['pared', 'doble-pared'].includes(this.options.drill);
+      ['pared', 'doble-pared', 'bajada', 'contrapared'].includes(
+        this.options.drill,
+      );
     // Read a reachable descending overhead before deciding to concede the glass.
     // The former blanket 'deep lob => wall' rule discarded every aerial option.
     let aerial: { x: number; z: number; player: number; t: number } | null =
@@ -2566,8 +2879,9 @@ export class PadelMatch {
             : 'Abrí espacio al vidrio y seguí la salida de la pelota';
       }
     } else if (s.wallBounces === 0) this.plannedWalls = 0;
+    const coverShift = clamp(s.ball.x * 0.2, -0.7, 0.7);
     const result = s.players.map((p) => ({
-      x: homeX(p),
+      x: clamp(homeX(p) + coverShift, -3.7, 3.7),
       z: signFor(p.team) * this.teamDepth[p.team],
     }));
     const speed =
@@ -2603,6 +2917,18 @@ export class PadelMatch {
       for (const p of candidates) {
         const overhead = sample.y > 1.65 && s.lastShot === 'globo';
         if (sample.bounces === 0 && !overhead && !across && Math.abs(p.z) > 5.6)
+          continue;
+        // Hold the volley line against a deep ball. Sprinting to intercept
+        // every shot at the net tape erases both chiquitas and split steps.
+        if (
+          !overhead &&
+          !across &&
+          !s.returnedToHitter &&
+          this.netControl[incoming] &&
+          sample.bounces === 0 &&
+          Math.abs(s.predictedBounce.z) > this.teamDepth[incoming] - 0.6 &&
+          Math.abs(sample.z) < Math.max(1.4, this.teamDepth[incoming] - 1)
+        )
           continue;
         const target = {
           x: clamp(sample.x + (sample.x > 0 ? -0.25 : 0.25), -4.45, 4.45),
@@ -2647,6 +2973,7 @@ export class PadelMatch {
         t: sample?.t ?? 0.4,
       };
     }
+    this.readNetOpportunity(chosen);
     this.plannedPlayer = chosen.player;
     this.plannedContactTime = s.time + chosen.t;
     result[chosen.player] = { x: chosen.x, z: chosen.z };
@@ -2661,17 +2988,23 @@ export class PadelMatch {
             this.teamDepth[incoming] + 0.9,
           );
     result[partnerId] = {
-      x: chosen.x > 0 ? -2.25 : 2.25,
+      x:
+        chosen.x > 0
+          ? clamp(chosen.x - 4.4, -3.2, -0.4)
+          : clamp(chosen.x + 4.4, 0.4, 3.2),
       z: sign * partnerDepth,
     };
-    // Both members recover to the same depth; a globo pulls them forward
-    // together while the receiving pair turns toward its back glass.
+    // Partners recover along the same line and shade toward the ball. Targets
+    // are waypoints: acceleration, speed and the physical doors still apply.
     const hitting = s.players.filter((p) => p.team === this.lastHitter);
-    const pairMean = (Math.abs(hitting[0].z) + Math.abs(hitting[1].z)) / 2;
-    if (pairMean > this.teamDepth[this.lastHitter] + 2) {
-      const depth = Math.max(this.teamDepth[this.lastHitter], pairMean - 1.5);
-      for (const p of hitting) result[p.id].z = signFor(p.team) * depth;
-    }
+    const desired = this.teamDepth[this.lastHitter];
+    const front = Math.min(...hitting.map((p) => Math.abs(p.z)));
+    const back = Math.max(...hitting.map((p) => Math.abs(p.z)));
+    const depth =
+      desired < front
+        ? Math.max(desired, Math.min(front, back - 1.5))
+        : desired;
+    for (const p of hitting) result[p.id].z = signFor(p.team) * depth;
     return result;
   }
 }

@@ -17,6 +17,8 @@ import {
   COURT,
   type TimingQuality,
   type ExteriorReturn,
+  TRAINING_DRILLS,
+  type TrainingDrill,
 } from './physics';
 const idle: Input = {
   moveX: 0,
@@ -56,6 +58,7 @@ interface Harness {
   requestedWall: boolean;
   plannedWalls: number;
   teamDepth: [number, number];
+  netControl: [boolean, boolean];
   lastHitter: Team;
   bounced: boolean;
   bounces: number;
@@ -794,7 +797,7 @@ void test('bajada requires glass while bandeja and vibora have distinct speed an
   );
 });
 
-void test('deep lob moves the hitting pair forward together and receiving pair turns back', () => {
+function tacticalScenario(shot: Shot) {
   const match = new PadelMatch(),
     s = match.getState(),
     h = internal(match);
@@ -803,18 +806,125 @@ void test('deep lob moves the hitting pair forward together and receiving pair t
   Object.assign(s.players[1], { x: -2, z: 7 });
   Object.assign(s.players[2], { x: 2, z: -3 });
   Object.assign(s.players[3], { x: -2, z: -3 });
-  Object.assign(s.ball, { x: 2, y: 1, z: 7 });
-  h.hit(s.players[0], 'globo', 0.75, 0.3);
+  h.teamDepth = [7.1, 3.1];
+  h.netControl = [false, true];
+  Object.assign(s.ball, { x: 2, y: 1, z: 7, vx: 0, vy: 0, vz: 0 });
+  h.hit(s.players[0], shot, 0.75, 0.3);
+  return { match, s, h };
+}
+
+void test('defenders advance together only after a deep lob forces the rivals behind their starting line', () => {
+  const { match, s, h } = tacticalScenario('globo');
   const targets = h.getTargets();
-  assert.ok(targets[0].z < 7 && targets[1].z < 7);
-  assert.ok(Math.abs(targets[0].z - targets[1].z) < 0.1);
-  assert.equal(s.teamTactics[0], 'subida en pareja');
   assert.ok(
-    targets.some((target, index) => index >= 2 && Math.abs(target.z) > 3.5),
-    'receiving pair retreats to meet the lob',
+    targets[0].z >= 6.8 && targets[1].z >= 6.8,
+    'stroke selection alone never earns the net',
   );
-  step(match, 0.4);
-  assert.ok(s.players.some((p) => p.team === 1 && p.movementIntent === 'giro'));
+  assert.equal(s.teamTactics[0], 'defensa en pareja');
+  let advanced = false,
+    turned = false;
+  for (let i = 0; i < 300 && s.lastHitterId === 0; i++) {
+    const previous = s.players.map((p) => ({ x: p.x, z: p.z }));
+    match.update(1 / 120, idle);
+    for (const p of s.players)
+      assert.ok(
+        Math.hypot(p.x - previous[p.id].x, p.z - previous[p.id].z) < 0.07,
+        'running has no position jumps',
+      );
+    turned ||= s.players.some(
+      (p) => p.team === 1 && p.movementIntent === 'giro',
+    );
+    if (String(s.teamTactics[0]) === 'subida en pareja') {
+      advanced = true;
+      assert.ok(
+        s.ball.z < -3.5,
+        'the ball has passed the original volley line',
+      );
+      assert.ok(
+        s.players.slice(2).every((p) => Math.abs(p.z) > 6.5),
+        'rivals really retreated',
+      );
+      const next = h.getTargets();
+      assert.ok(next[0].z < 6.5 && next[1].z < 6.5);
+      assert.ok(Math.abs(next[0].z - next[1].z) < 0.01);
+      break;
+    }
+  }
+  assert.ok(advanced && turned);
+});
+
+void test('a high but short lob leaves defenders back and gives the net pair an overhead', () => {
+  const { match, s, h } = tacticalScenario('globo');
+  Object.assign(s.ball, solveTrajectory(s.ball, { x: 1.7, z: -3.6 }, 1.9));
+  s.predictedBounce = { x: 1.7, z: -3.6 };
+  let high = false;
+  for (let i = 0; i < 300 && s.lastHitterId === 0; i++) {
+    match.update(1 / 120, idle);
+    if (s.lastHitterId !== 0) break;
+    high ||= s.ball.y > 3.2;
+    assert.equal(h.netControl[0], false);
+    assert.ok(
+      s.players[0].z > 6.1 && s.players[1].z > 6.1,
+      'both remain in the defensive zone',
+    );
+    assert.notEqual(s.teamTactics[0], 'subida en pareja');
+  }
+  assert.ok(high);
+  assert.ok(s.lastHitterId >= 2);
+  assert.equal(s.lastShot, 'remate');
+});
+
+void test('a low chiquita permits staged movement, while a floating one does not', () => {
+  for (const floating of [false, true]) {
+    const { match, s, h } = tacticalScenario('chiquita');
+    if (floating) {
+      Object.assign(s.ball, solveTrajectory(s.ball, { x: 1.7, z: -3.4 }, 1.8));
+      s.predictedBounce = { x: 1.7, z: -3.4 };
+    }
+    const initial = h.getTargets();
+    assert.ok(initial[0].z > 6.8 && initial[1].z > 6.8);
+    if (!floating)
+      assert.ok(
+        Math.abs(initial[2].z) > 2,
+        'volley receiver holds its line instead of charging the tape',
+      );
+    let pressed = false;
+    for (let i = 0; i < 300 && s.lastHitterId === 0; i++) {
+      match.update(1 / 120, idle);
+      if (s.teamTactics[0] === 'presionar chiquita en pareja') {
+        pressed = true;
+        assert.ok(s.ball.y < 1 && s.ball.vy < 0);
+        assert.equal(h.teamDepth[0], 4.65);
+      }
+    }
+    assert.equal(pressed, !floating);
+    assert.ok(s.lastHitterId >= 2);
+    if (!floating) {
+      assert.ok(s.contactPoint!.y < 1);
+      assert.equal(s.teamTactics[0], 'subida tras devolución baja');
+      assert.equal(h.teamDepth[0], 3.25);
+    } else assert.equal(h.netControl[0], false);
+  }
+});
+
+void test('the server runs to join the partner at the net while the returners stay back', () => {
+  const match = new PadelMatch(),
+    s = match.getState(),
+    h = internal(match);
+  const originalZ = s.players[s.server].z;
+  match.update(1 / 120, { ...idle, hit: true });
+  step(match, 0.72);
+  assert.equal(s.phase, 'rally');
+  const targets = h.getTargets();
+  assert.ok(Math.abs(targets[s.server].z) < 3.5);
+  assert.ok(Math.abs(targets[1].z) < 3.5);
+  assert.ok(targets.slice(2).every((p) => Math.abs(p.z) > 5.6));
+  step(match, 0.25);
+  assert.ok(s.players[s.server].z < originalZ - 0.5);
+  assert.ok(
+    s.players[s.server].z > originalZ - 1.6,
+    'server advances by running',
+  );
 });
 
 void test('let waits for outcome: tape plus legal box then mesh is service fault', () => {
@@ -1393,3 +1503,105 @@ void test('charged smash keeps its released command and quality for the practice
   assert.equal(s.ballOutside, true);
   assert.ok(s.ball.x > 0, 'queued aim survives later input changes');
 });
+
+void test('training catalog covers every stroke, smash variation, walls and exterior recovery', () => {
+  const strokes = new Set(TRAINING_DRILLS.map((drill) => drill.targetShot));
+  for (const stroke of [
+    'saque',
+    'plano',
+    'volea',
+    'globo',
+    'bandeja',
+    'vibora',
+    'remate',
+    'dejada',
+    'chiquita',
+    'bajada',
+    'contrapared',
+  ] as const)
+    assert.ok(strokes.has(stroke), stroke);
+  const variants = new Set(
+    TRAINING_DRILLS.filter((drill) => 'smash' in drill).map((drill) =>
+      'smash' in drill ? drill.smash : null,
+    ),
+  );
+  assert.deepEqual(
+    [...variants].sort((a, b) => String(a).localeCompare(String(b))),
+    ['alto', 'por3', 'por4', 'retorno'],
+  );
+  assert.equal(
+    new Set(TRAINING_DRILLS.map((drill) => drill.id)).size,
+    TRAINING_DRILLS.length,
+  );
+});
+
+for (const entry of TRAINING_DRILLS) {
+  if (entry.id === 'libre') continue;
+  void test(`training ${entry.id} provides a reachable real contact with the requested stroke`, () => {
+    const drill: TrainingDrill = entry;
+    const match = new PadelMatch({ training: true, drill: entry.id }),
+      s = match.getState();
+    const shot =
+      drill.targetShot === 'saque' || !drill.targetShot
+        ? 'plano'
+        : drill.targetShot;
+    const input: Input = {
+      ...idle,
+      shot,
+      power: 0.8,
+      smash: drill.smash,
+      waitWall: drill.waitWall,
+    };
+    let doorCrossed = false,
+      maxWalls = 0,
+      bouncedBeforeContact = 0;
+    for (let i = 0; i < 1200 && s.contactPoint?.playerId !== 0; i++) {
+      assert.notEqual(
+        s.phase,
+        'point',
+        'feed must remain playable until contact',
+      );
+      const previous = { x: s.players[0].x, z: s.players[0].z };
+      const window =
+        drill.targetShot === 'saque'
+          ? i === 50
+          : drill.feedBehavior === 'exterior'
+            ? s.ballOutside && s.players[0].outside
+            : shot === 'bajada'
+              ? s.wallBounces > 0 && s.ball.y > 1.35
+              : ['remate', 'bandeja', 'vibora'].includes(shot)
+                ? s.ball.vy < 0 && s.ball.y > 1.4
+                : drill.feedBehavior === 'ground'
+                  ? s.ballBounce === 1
+                  : true;
+      input.hit = !!window && (s.canHit || drill.targetShot === 'saque');
+      maxWalls = Math.max(maxWalls, s.wallBounces);
+      bouncedBeforeContact = Math.max(bouncedBeforeContact, s.ballBounce);
+      match.update(1 / 120, input);
+      if (Math.abs(previous.x) <= 5 && Math.abs(s.players[0].x) > 5) {
+        doorCrossed = true;
+        assert.ok(
+          Math.abs(s.players[0].z) >= COURT.doorMinZ &&
+            Math.abs(s.players[0].z) <= COURT.doorMaxZ,
+        );
+      }
+    }
+    assert.equal(s.contactPoint?.playerId, 0);
+    assert.equal(s.contactPoint?.shot, shot);
+    if (drill.smash) assert.equal(s.smashMode, drill.smash);
+    if (drill.feedBehavior === 'ground') assert.equal(bouncedBeforeContact, 1);
+    if (drill.feedBehavior === 'wall') assert.ok(maxWalls >= 1);
+    if (drill.feedBehavior === 'double-wall') assert.equal(maxWalls, 2);
+    if (drill.feedBehavior === 'volley') assert.equal(bouncedBeforeContact, 0);
+    if (drill.feedBehavior === 'exterior') {
+      assert.ok(doorCrossed, 'player must leave through the physical door');
+      assert.ok(Math.abs(s.contactPoint!.x) > 5);
+    }
+    if (drill.targetShot === 'saque') {
+      assert.equal(s.server, 0);
+      assert.equal(s.serviceMotion, 1);
+      assert.ok(s.contactPoint!.y < 0.9 && s.ball.vz < 0);
+      assert.ok(s.predictedBounce.x < 0 && s.predictedBounce.z < 0);
+    }
+  });
+}
