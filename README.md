@@ -1,6 +1,6 @@
 # Premier Padel
 
-Juego 3D de pádel en español. Segunda edición jugable, inspirada en Premier Padel.
+Juego 3D de pádel en español. Tercera edición jugable, inspirada en Premier Padel.
 Implementación independiente con Three.js, React y Vinext/Vite. No modifica alandaitch.com.
 
 ## Jugar
@@ -13,10 +13,14 @@ Implementación independiente con Three.js, React y Vinext/Vite. No modifica ala
 - Tres dificultades y tres cámaras.
 - Configuración y títulos obtenidos guardados en este navegador.
 
-Teclado: WASD/flechas para moverse; Espacio mantenido y soltado para cargar/golpear;
-1–9 y 0 para elegir golpe; Q/E para dirigir; Tab para cambiar jugador; Escape para pausar.
+Teclado: WASD/flechas para moverse. J: golpe normal; K: globo; L: remate;
+U: bandeja; I: víbora; O: toque corto. Cada tecla ejecuta el golpe directamente.
+Espacio saca o pega normal. J adapta plano/volea/bajada; O adapta dejada/chiquita.
+Shift junto al golpe añade potencia; R cambia retorno/por 3/por 4; H: contrapared.
 B mantenida o botón «Esperar vidrio» para ceder espacio al rebote.
-También se puede sacar/golpear con el botón visible. Remate ofrece retorno, por 3 y por 4.
+Q/E para dirigir; Tab para cambiar jugador; Escape para pausar.
+Los números 1–9 y 0 siguen disponibles y ahora ejecutan el golpe directamente.
+Enter inicia partido rápido desde el menú sin foco en un botón.
 Sin movimiento manual, una asistencia acerca al jugador a la pelota. El golpe requiere una orden.
 Hay joystick y golpe táctiles en pantallas angostas.
 

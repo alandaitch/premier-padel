@@ -37,6 +37,7 @@ import {
 import { PadelRenderer } from '@/game/renderer';
 import { PadelAudio } from '@/game/audio';
 import { TEAMS, VENUES, SHOTS } from '@/game/catalog';
+import { keyboardShot, SHOT_KEYS } from '@/game/controls';
 
 type Screen = 'menu' | 'play' | 'pause' | 'help' | 'result';
 type Mode = 'partido' | 'circuito' | 'entrenamiento';
@@ -125,6 +126,7 @@ export default function PadelGame() {
   const input = useRef<Input>({ ...BASE_INPUT });
   const screenRef = useRef<Screen>('menu');
   const charge = useRef<number | null>(null);
+  const startFromKeyboard = useRef<() => void>(() => {});
   const touch = useRef({ x: 0, z: 0 });
   const hydrated = useRef(false);
   const [screen, setScreen] = useState<Screen>('menu');
@@ -299,12 +301,33 @@ export default function PadelGame() {
     const resize = () => renderer.current?.resize();
     window.addEventListener('resize', resize);
     const keydown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+      const target = e.target as HTMLElement;
       if (
-        (e.target as HTMLElement)?.closest(
-          'input,[role="combobox"],[role="listbox"],select',
+        target?.closest(
+          'input,textarea,[contenteditable="true"],[role="combobox"],[role="listbox"],select',
         )
       )
         return;
+      // Dialog buttons keep their native keyboard behavior, including Enter/Space.
+      if (target?.closest('[role="dialog"]')) return;
+      if (e.code === 'Escape' && !e.repeat) {
+        if (screenRef.current === 'play') changeScreen('pause');
+        else if (screenRef.current === 'pause') changeScreen('play');
+        else if (screenRef.current === 'help') changeScreen(returnTo.current);
+        return;
+      }
+      if (
+        screenRef.current === 'menu' &&
+        e.code === 'Enter' &&
+        !e.repeat &&
+        !target?.closest('button,a')
+      ) {
+        e.preventDefault();
+        startFromKeyboard.current();
+        return;
+      }
+      if (screenRef.current !== 'play') return;
       if (
         [
           'Space',
@@ -313,42 +336,41 @@ export default function PadelGame() {
           'ArrowLeft',
           'ArrowRight',
           'Tab',
-        ].includes(e.code) &&
-        screenRef.current === 'play'
+        ].includes(e.code)
       )
         e.preventDefault();
-      if (e.code === 'Escape' && !e.repeat) {
-        if (screenRef.current === 'play') changeScreen('pause');
-        else if (screenRef.current === 'pause') changeScreen('play');
-        else if (screenRef.current === 'help') changeScreen(returnTo.current);
+      keys.current.add(e.code);
+      if (e.repeat) return;
+      if (e.code === 'Tab') input.current.switchPlayer = true;
+      if (e.code === 'KeyR') {
+        const modes = ['retorno', 'por3', 'por4'] as const;
+        const next =
+          modes[
+            (modes.indexOf(input.current.smash ?? 'retorno') + 1) % modes.length
+          ];
+        input.current.smash = next;
+        setSmash(next);
+      }
+      const current = match.current?.getState();
+      if (!current) return;
+      const chosen =
+        keyboardShot(e.code, current) ??
+        SHOTS.find((s) => e.code === `Digit${s.key}`)?.id;
+      if (!chosen) return;
+      e.preventDefault();
+      void audio.current?.start();
+      if (current.phase === 'point') {
+        match.current?.nextPoint();
         return;
       }
-      if (screenRef.current !== 'play') return;
-      keys.current.add(e.code);
-      const selected = SHOTS.find((s) => e.code === `Digit${s.key}`);
-      if (selected) {
-        const id = selected.id;
-        input.current.shot = id;
-        setShot(id);
-      }
-      if (e.code === 'Tab' && !e.repeat) input.current.switchPlayer = true;
-      if (e.code === 'Space' && !e.repeat) {
-        if (match.current?.getState().phase === 'point')
-          match.current.nextPoint();
-        else charge.current = performance.now();
-      }
+      // One key press selects AND swings; there is no second confirm or charge.
+      input.current.shot = chosen;
+      input.current.power = e.shiftKey ? 0.95 : 0.68;
+      input.current.hit = true;
+      setShot(chosen);
     };
     const keyup = (e: KeyboardEvent) => {
       keys.current.delete(e.code);
-      if (e.code === 'Space' && charge.current !== null) {
-        input.current.power = Math.min(
-          1,
-          0.35 + (performance.now() - charge.current) / 950,
-        );
-        input.current.hit = true;
-        charge.current = null;
-        setPower(0);
-      }
     };
     const blur = () => {
       keys.current.clear();
@@ -440,6 +462,7 @@ export default function PadelGame() {
     setShowBracket(false);
     changeScreen('play');
   };
+  startFromKeyboard.current = () => start(0, 'partido');
   const menu = () => {
     match.current = new PadelMatch({
       autoPlay: true,
@@ -450,7 +473,10 @@ export default function PadelGame() {
   };
   const selectShot = (id: Shot) => {
     input.current.shot = id;
+    input.current.power = 0.68;
+    input.current.hit = true;
     setShot(id);
+    void audio.current?.start();
   };
   const toggleWall = () => {
     setWaitWall((v) => {
@@ -529,7 +555,7 @@ export default function PadelGame() {
             </a>
             <div className="edition">
               <span className="status-dot" />
-              EDICIÓN JUGABLE<span className="edition-sep">/</span>02
+              EDICIÓN JUGABLE<span className="edition-sep">/</span>03
             </div>
             <button
               className="icon-button"
@@ -547,7 +573,9 @@ export default function PadelGame() {
             <h1>
               Entrá a<br /> la <em>pista.</em>
             </h1>
-            <p className="menu-intro">Cuatro jugadores. Cada pared cuenta.</p>
+            <p className="menu-intro">
+              WASD para moverte. JKL · UIO para golpear.
+            </p>
             <div className="mode-list" role="group" aria-label="Modo de juego">
               {(
                 [
@@ -791,7 +819,7 @@ export default function PadelGame() {
                   <span>
                     {state.phase === 'serve'
                       ? state.players[state.server]?.team === 0
-                        ? 'Hacé clic en SACAR o mantené y soltá ESPACIO'
+                        ? 'Tocá ESPACIO para sacar. JKL · UIO ejecutan los golpes.'
                         : 'Prepará la devolución'
                       : 'Próximo punto en unos segundos · ESPACIO para continuar'}
                   </span>
@@ -865,18 +893,26 @@ export default function PadelGame() {
                   <span>
                     {state.phase === 'rally'
                       ? SHOTS.find((s) => s.id === state.lastShot)?.name
-                      : '1 — 9 / 0'}
+                      : 'JKL · UIO'}
                   </span>
                 </div>
                 <div className="shots">
-                  {SHOTS.map((s) => (
+                  {[
+                    SHOTS[0],
+                    SHOTS[1],
+                    SHOTS[4],
+                    SHOTS[2],
+                    SHOTS[3],
+                    SHOTS[5],
+                    ...SHOTS.slice(6),
+                  ].map((s) => (
                     <button
                       key={s.id}
                       className={shot === s.id ? 'active' : ''}
                       onClick={() => selectShot(s.id)}
                       title={s.tip}
                     >
-                      <kbd>{s.key}</kbd>
+                      <kbd>{SHOT_KEYS[s.id]}</kbd>
                       <span>{s.name}</span>
                     </button>
                   ))}
@@ -895,6 +931,7 @@ export default function PadelGame() {
                       role="group"
                       aria-label="Tipo de remate"
                     >
+                      <kbd title="R cambia el tipo de remate">R</kbd>
                       {(
                         [
                           { id: 'retorno', name: 'Traérmela' },
@@ -937,13 +974,15 @@ export default function PadelGame() {
                 </div>
                 <div className="power-row">
                   <span>
-                    ESPACIO <b>mantené y soltá</b>
+                    ESPACIO <b>sacar / golpe normal</b>
                   </span>
                   <div className="power-track">
                     <i style={{ width: `${power * 100}%` }} />
                   </div>
                   <span>
-                    {power > 0 ? `${Math.round(power * 100)}%` : 'POTENCIA'}
+                    {power > 0
+                      ? `${Math.round(power * 100)}%`
+                      : 'SHIFT + GOLPE = MÁS POTENCIA'}
                   </span>
                 </div>
               </div>
@@ -1176,8 +1215,28 @@ export default function PadelGame() {
                   <kbd>W A S D</kbd> o flechas: mové al jugador.
                 </p>
                 <p>
-                  <kbd>ESPACIO</kbd> mantené para cargar. Soltá cerca de la
-                  pelota.
+                  <kbd>J</kbd> golpe normal · <kbd>K</kbd> globo · <kbd>L</kbd>{' '}
+                  remate.
+                </p>
+                <p>
+                  <kbd>U</kbd> bandeja · <kbd>I</kbd> víbora · <kbd>O</kbd>{' '}
+                  toque corto.
+                </p>
+                <p>
+                  <kbd>ESPACIO</kbd> sacá o pegá normal. Una pulsación ejecuta
+                  el golpe.
+                </p>
+                <p>
+                  J elige plano, volea o bajada según la pelota. O juega
+                  chiquita desde el fondo.
+                </p>
+                <p>
+                  <kbd>SHIFT</kbd> junto al golpe: más potencia. <kbd>R</kbd>{' '}
+                  cambia el tipo de remate.
+                </p>
+                <p>
+                  <kbd>H</kbd> contrapared. Los números 1–9 y 0 ejecutan los
+                  diez golpes originales.
                 </p>
                 <p>
                   <kbd>Q / E</kbd> dirigí a izquierda o derecha.
@@ -1187,7 +1246,8 @@ export default function PadelGame() {
                   tras el rebote.
                 </p>
                 <p>
-                  El botón GOLPEAR también juega la pelota con potencia media.
+                  Pegá cuando aparece «PEGÁ AHORA». No hace falta cargar ni
+                  confirmar con otra tecla.
                 </p>
                 <p>
                   <kbd>TAB</kbd> cambiá de jugador. Tu compañero usa IA.
@@ -1238,7 +1298,7 @@ export default function PadelGame() {
                 <h3>Diez golpes de pádel</h3>
                 {SHOTS.map((s) => (
                   <div className="help-shot" key={s.id}>
-                    <kbd>{s.key}</kbd>
+                    <kbd>{SHOT_KEYS[s.id]}</kbd>
                     <p>
                       <strong>{s.name}</strong>
                       <span>{s.tip}</span>
