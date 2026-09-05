@@ -17,6 +17,8 @@ export interface PlayerAppearance {
   hairStyle: 'short' | 'crop' | 'curly' | 'swept';
   beard: 'none' | 'stubble' | 'full';
   headband?: string;
+  /** Sculpting ratios interpreted from the official portraits, not biometric measurements. */
+  face?: { jaw: number; nose: number; eyes: number; brow: number; lip: number };
   kit: {
     shirt: string;
     shorts: string;
@@ -59,6 +61,14 @@ function profile(
     hair: '#28221e',
     hairStyle,
     beard,
+    face:
+      id === 'galan'
+        ? { jaw: 1.09, nose: 1.1, eyes: 1.02, brow: 1.22, lip: 0.9 }
+        : id === 'coello'
+          ? { jaw: 0.94, nose: 1.12, eyes: 0.94, brow: 1.02, lip: 0.95 }
+          : id === 'chingotto'
+            ? { jaw: 0.96, nose: 0.91, eyes: 0.94, brow: 1.05, lip: 1.05 }
+            : { jaw: 1.02, nose: 1, eyes: 1, brow: 1, lip: 1 },
     kit: {
       shirt,
       shorts: '#18202a',

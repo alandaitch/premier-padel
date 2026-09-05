@@ -11,7 +11,7 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",
-    "test": "tsx --test game/physics.test.ts",
+    "test": "tsx --test game/physics.test.ts game/smash-charge.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

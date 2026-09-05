@@ -39,6 +39,12 @@ import { PadelAudio } from '@/game/audio';
 import { TEAMS, VENUES, SHOTS } from '@/game/catalog';
 import { keyboardShot, SHOT_KEYS } from '@/game/controls';
 import { matchAppearances, teamAppearances } from '@/game/player-profiles';
+import {
+  sampleSmashCharge,
+  PERFECT_CENTER,
+  PERFECT_WIDTH,
+  type PerfectDifficulty,
+} from '@/game/smash-charge';
 
 type Screen = 'menu' | 'play' | 'pause' | 'help' | 'result';
 type Mode = 'partido' | 'circuito' | 'entrenamiento';
@@ -50,6 +56,7 @@ type Settings = {
   format: 'rapido' | 'set' | 'partido';
   camera: 'tv' | 'cerca' | 'cenital';
   volume: number;
+  perfectDifficulty: PerfectDifficulty;
 };
 const DEFAULTS: Settings = {
   team: 0,
@@ -59,6 +66,7 @@ const DEFAULTS: Settings = {
   format: 'rapido',
   camera: 'tv',
   volume: 0.45,
+  perfectDifficulty: 'facil',
 };
 const BASE_INPUT: Input = {
   moveX: 0,
@@ -127,6 +135,8 @@ export default function PadelGame() {
   const input = useRef<Input>({ ...BASE_INPUT });
   const screenRef = useRef<Screen>('menu');
   const charge = useRef<number | null>(null);
+  const chargeKey = useRef<string | null>(null);
+  const chargeMeter = useRef<HTMLDivElement>(null);
   const startFromKeyboard = useRef<() => void>(() => {});
   const touch = useRef({ x: 0, z: 0 });
   const hydrated = useRef(false);
@@ -139,6 +149,9 @@ export default function PadelGame() {
   const [mode, setMode] = useState<Mode>('partido');
   const [shot, setShot] = useState<Shot>('plano');
   const [power, setPower] = useState(0);
+  const [charging, setCharging] = useState(false);
+  const [chargeAim, setChargeAim] = useState(0);
+  const [chargeLate, setChargeLate] = useState(false);
   const [waitWall, setWaitWall] = useState(false);
   const [smash, setSmash] = useState<'retorno' | 'por3' | 'por4'>('retorno');
   const [drill, setDrill] = useState<
@@ -157,11 +170,60 @@ export default function PadelGame() {
   const resultRecorded = useRef(false);
   const [matchOpponent, setMatchOpponent] = useState(1);
   const [roundResults, setRoundResults] = useState<string[]>([]);
+  const cancelCharge = () => {
+    charge.current = null;
+    chargeKey.current = null;
+    input.current.charging = false;
+    input.current.charge = 0;
+    input.current.aim = 0;
+    input.current.perfect = false;
+    input.current.timingQuality = 'good';
+    setCharging(false);
+    setChargeAim(0);
+    setPower(0);
+    setChargeLate(false);
+  };
+  const beginCharge = (key: string | null = null) => {
+    if (charge.current !== null || screenRef.current !== 'play') return;
+    const current = match.current?.getState();
+    if (!current || current.phase !== 'rally') return;
+    charge.current = performance.now();
+    chargeKey.current = key;
+    input.current.shot = 'remate';
+    input.current.charging = true;
+    input.current.hit = false;
+    input.current.perfect = false;
+    input.current.aim = 0;
+    setShot('remate');
+    setCharging(true);
+    setChargeLate(false);
+    setChargeAim(0);
+    setPower(0);
+    void audio.current?.start();
+  };
+  const releaseCharge = () => {
+    if (charge.current === null) return;
+    const sample = sampleSmashCharge(
+      performance.now() - charge.current,
+      settingsRef.current.perfectDifficulty,
+    );
+    charge.current = null;
+    chargeKey.current = null;
+    input.current.charging = false;
+    input.current.charge = sample.progress;
+    input.current.power = sample.power;
+    input.current.perfect = sample.perfect;
+    input.current.timingQuality = sample.quality;
+    input.current.hit = true;
+    setCharging(false);
+    setPower(sample.progress);
+    setChargeLate(sample.late);
+  };
   const changeScreen = (s: Screen) => {
     screenRef.current = s;
     setScreen(s);
     keys.current.clear();
-    charge.current = null;
+    cancelCharge();
     input.current.hit = false;
     setPower(0);
   };
@@ -212,6 +274,7 @@ export default function PadelGame() {
     let accumulator = 0;
     let publish = 0;
     let lastEvent = -1;
+    let lastPerfectContact = -1;
     let pointTimer = 0;
     let measured = 0;
     let frames = 0;
@@ -264,16 +327,35 @@ export default function PadelGame() {
           const sz =
             (k.has('ArrowDown') || k.has('KeyS') ? 1 : 0) -
             (k.has('ArrowUp') || k.has('KeyW') ? 1 : 0);
+          const isCharging = charge.current !== null;
+          if (isCharging) {
+            const direction =
+              sx ||
+              (k.has('KeyE') ? 1 : 0) - (k.has('KeyQ') ? 1 : 0) ||
+              touch.current.x;
+            input.current.aim = Math.max(
+              -1,
+              Math.min(1, input.current.aim + (direction * 1.7) / 120),
+            );
+            const sample = sampleSmashCharge(
+              now - charge.current!,
+              settingsRef.current.perfectDifficulty,
+            );
+            input.current.charge = sample.progress;
+            input.current.power = sample.power;
+          }
           const command = {
             ...input.current,
-            moveX: sx || touch.current.x,
+            moveX: isCharging ? 0 : sx || touch.current.x,
             moveZ: sz || touch.current.z,
             waitWall: input.current.waitWall || k.has('KeyB'),
-            aim: k.has('KeyQ')
-              ? -0.85
-              : k.has('KeyE')
-                ? 0.85
-                : input.current.aim,
+            aim: isCharging
+              ? input.current.aim
+              : k.has('KeyQ')
+                ? -0.85
+                : k.has('KeyE')
+                  ? 0.85
+                  : input.current.aim,
           };
           m.update(
             1 / 120,
@@ -285,7 +367,23 @@ export default function PadelGame() {
         }
       } else accumulator = 0;
       const s = m.getState();
+      if (s.phase === 'serve') lastPerfectContact = -1;
+      if (charge.current !== null && s.phase !== 'rally') cancelCharge();
+      renderer.current!.setChargePreview({
+        active: charge.current !== null,
+        progress: input.current.charge ?? 0,
+        aim: input.current.aim,
+        smash: true,
+      });
       renderer.current!.render(s, dt);
+      if (
+        s.contactPoint?.quality === 'perfect' &&
+        s.contactPoint.time !== lastPerfectContact
+      ) {
+        lastPerfectContact = s.contactPoint.time;
+        if (screenRef.current === 'play')
+          audio.current?.play('perfect', s.contactPoint.x, 1);
+      }
       if (active && s.eventId !== lastEvent) {
         if (screenRef.current === 'play')
           audio.current?.play(
@@ -319,10 +417,27 @@ export default function PadelGame() {
         screenRef.current = 'result';
         setScreen('result');
       }
-      if (publish > 0.09) {
+      if (charge.current !== null) {
+        const sample = sampleSmashCharge(
+          now - charge.current,
+          settingsRef.current.perfectDifficulty,
+        );
+        chargeMeter.current?.style.setProperty(
+          '--charge',
+          `${sample.progress * 100}%`,
+        );
+      }
+      if (publish > (charge.current === null ? 0.09 : 0.033)) {
         setState(JSON.parse(JSON.stringify(s)));
-        if (charge.current !== null)
-          setPower(Math.min(1, 0.35 + (now - charge.current) / 950));
+        if (charge.current !== null) {
+          const sample = sampleSmashCharge(
+            now - charge.current,
+            settingsRef.current.perfectDifficulty,
+          );
+          setPower(sample.progress);
+          setChargeLate(sample.late);
+          setChargeAim(input.current.aim);
+        }
         publish = 0;
       }
       if (measured > 1) {
@@ -376,7 +491,10 @@ export default function PadelGame() {
         e.preventDefault();
       keys.current.add(e.code);
       if (e.repeat) return;
-      if (e.code === 'Tab') input.current.switchPlayer = true;
+      if (e.code === 'Tab') {
+        cancelCharge();
+        input.current.switchPlayer = true;
+      }
       if (e.code === 'KeyR') {
         const modes = ['retorno', 'por3', 'por4'] as const;
         const next =
@@ -398,7 +516,11 @@ export default function PadelGame() {
         match.current?.nextPoint();
         return;
       }
-      // One key press selects AND swings; there is no second confirm or charge.
+      if (chosen === 'remate' && current.phase === 'rally') {
+        beginCharge(e.code);
+        return;
+      }
+      cancelCharge();
       input.current.shot = chosen;
       input.current.power = e.shiftKey ? 0.95 : 0.68;
       input.current.hit = true;
@@ -406,10 +528,12 @@ export default function PadelGame() {
     };
     const keyup = (e: KeyboardEvent) => {
       keys.current.delete(e.code);
+      if (chargeKey.current === e.code && screenRef.current === 'play')
+        releaseCharge();
     };
     const blur = () => {
       keys.current.clear();
-      charge.current = null;
+      cancelCharge();
       input.current.hit = false;
       if (screenRef.current === 'play') changeScreen('pause');
     };
@@ -513,9 +637,10 @@ export default function PadelGame() {
     changeScreen('menu');
   };
   const selectShot = (id: Shot) => {
+    cancelCharge();
     input.current.shot = id;
     input.current.power = 0.68;
-    input.current.hit = true;
+    input.current.hit = id !== 'remate';
     setShot(id);
     void audio.current?.start();
   };
@@ -530,6 +655,7 @@ export default function PadelGame() {
     input.current.smash = value;
   };
   const quickHit = () => {
+    cancelCharge();
     if (match.current?.getState().phase === 'point') match.current.nextPoint();
     else {
       input.current.power = 0.68;
@@ -596,7 +722,7 @@ export default function PadelGame() {
             </a>
             <div className="edition">
               <span className="status-dot" />
-              EDICIÓN JUGABLE<span className="edition-sep">/</span>04
+              EDICIÓN JUGABLE<span className="edition-sep">/</span>05
             </div>
             <button
               className="icon-button"
@@ -615,7 +741,7 @@ export default function PadelGame() {
               Entrá a<br /> la <em>pista.</em>
             </h1>
             <p className="menu-intro">
-              WASD para moverte. JKL · UIO para golpear.
+              WASD para moverte. JKL · UIO para golpear. Mantené L para cargar.
             </p>
             <div className="mode-list" role="group" aria-label="Modo de juego">
               {(
@@ -944,6 +1070,21 @@ export default function PadelGame() {
               <div className="tactical-hint" role="status">
                 {state.tacticalHint}
               </div>
+              {state.contactPoint?.quality === 'perfect' &&
+                state.time - state.contactPoint.time < 1.05 && (
+                  <div
+                    className="perfect-impact"
+                    key={`${state.contactPoint.playerId}-${state.contactPoint.time}`}
+                  >
+                    <span>CONTACTO LIMPIO</span>
+                    <strong>¡PERFECTO!</strong>
+                  </div>
+                )}
+              {state.ballOutside && state.phase === 'rally' && (
+                <div className="exterior-alert">
+                  <ArrowUpRight size={16} /> ¡SIGUE VIVA! · SALÍ POR LA PUERTA
+                </div>
+              )}
               <div className="shot-bar">
                 <div className="shot-title">
                   <span>
@@ -972,7 +1113,25 @@ export default function PadelGame() {
                     <button
                       key={s.id}
                       className={shot === s.id ? 'active' : ''}
-                      onClick={() => selectShot(s.id)}
+                      onClick={(e) => {
+                        if (s.id !== 'remate' || e.detail === 0)
+                          selectShot(s.id);
+                      }}
+                      onPointerDown={
+                        s.id === 'remate'
+                          ? (e) => {
+                              e.currentTarget.setPointerCapture(e.pointerId);
+                              selectShot('remate');
+                              beginCharge();
+                            }
+                          : undefined
+                      }
+                      onPointerUp={
+                        s.id === 'remate' ? releaseCharge : undefined
+                      }
+                      onPointerCancel={
+                        s.id === 'remate' ? cancelCharge : undefined
+                      }
                       title={s.tip}
                     >
                       <kbd>{SHOT_KEYS[s.id]}</kbd>
@@ -1023,7 +1182,26 @@ export default function PadelGame() {
                       state.phase === 'serve' &&
                       state.players[state.server]?.team !== 0
                     }
-                    onClick={quickHit}
+                    onClick={(e) => {
+                      if (shot !== 'remate' || state.phase !== 'rally')
+                        quickHit();
+                      else if (e.detail === 0) {
+                        if (charge.current === null) beginCharge();
+                        else releaseCharge();
+                      }
+                    }}
+                    onPointerDown={
+                      shot === 'remate' && state.phase === 'rally'
+                        ? (e) => {
+                            e.currentTarget.setPointerCapture(e.pointerId);
+                            beginCharge();
+                          }
+                        : undefined
+                    }
+                    onPointerUp={shot === 'remate' ? releaseCharge : undefined}
+                    onPointerCancel={
+                      shot === 'remate' ? cancelCharge : undefined
+                    }
                   >
                     {state.phase === 'point'
                       ? 'CONTINUAR'
@@ -1031,23 +1209,99 @@ export default function PadelGame() {
                         ? state.players[state.server]?.team === 0
                           ? 'SACAR'
                           : 'PREPARATE'
-                        : 'GOLPEAR'}{' '}
+                        : shot === 'remate'
+                          ? 'MANTENÉ PARA CARGAR'
+                          : 'GOLPEAR'}{' '}
                     <Play size={12} />
                   </button>
                 </div>
-                <div className="power-row">
-                  <span>
-                    ESPACIO <b>sacar / golpe normal</b>
-                  </span>
-                  <div className="power-track">
-                    <i style={{ width: `${power * 100}%` }} />
+                {shot === 'remate' ? (
+                  <div
+                    className={`smash-charge ${charging ? 'is-charging' : ''} ${chargeLate ? 'is-late' : ''}`}
+                  >
+                    <div className="charge-caption">
+                      <strong>
+                        {charging
+                          ? chargeLate
+                            ? 'TE PASASTE'
+                            : 'SOLTÁ EN VERDE'
+                          : 'CARGÁ EL REMATE'}
+                      </strong>
+                      <span>
+                        <kbd>L</kbd> mantener · <kbd>A / D</kbd> apuntar ·
+                        soltar
+                      </span>
+                    </div>
+                    <div
+                      className="charge-track"
+                      data-timing={
+                        !charging
+                          ? 'idle'
+                          : chargeLate
+                            ? 'late'
+                            : Math.abs(power - PERFECT_CENTER) <=
+                                PERFECT_WIDTH[settings.perfectDifficulty] / 2
+                              ? 'perfect'
+                              : 'charging'
+                      }
+                      ref={chargeMeter}
+                      role="meter"
+                      aria-label="Carga del remate"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(power * 100)}
+                      style={
+                        { '--charge': `${power * 100}%` } as React.CSSProperties
+                      }
+                    >
+                      <div className="charge-fill" />
+                      <div
+                        className="charge-perfect-zone"
+                        style={{
+                          left: `${(PERFECT_CENTER - PERFECT_WIDTH[settings.perfectDifficulty] / 2) * 100}%`,
+                          width: `${PERFECT_WIDTH[settings.perfectDifficulty] * 100}%`,
+                        }}
+                      />
+                      <div className="charge-needle" />
+                    </div>
+                    <div className="charge-details">
+                      <span>
+                        {Math.round(power * 100)}% ·{' '}
+                        {charging
+                          ? chargeAim < -0.12
+                            ? 'APUNTANDO A IZQUIERDA'
+                            : chargeAim > 0.12
+                              ? 'APUNTANDO A DERECHA'
+                              : 'APUNTANDO AL CENTRO'
+                          : 'Anticipá el globo y armá antes del contacto'}
+                      </span>
+                      <span>
+                        PERFECTO ·{' '}
+                        {
+                          {
+                            facil: 'FÁCIL',
+                            normal: 'NORMAL',
+                            dificil: 'EXIGENTE',
+                          }[settings.perfectDifficulty]
+                        }
+                      </span>
+                    </div>
                   </div>
-                  <span>
-                    {power > 0
-                      ? `${Math.round(power * 100)}%`
-                      : 'SHIFT + GOLPE = MÁS POTENCIA'}
-                  </span>
-                </div>
+                ) : (
+                  <div className="power-row">
+                    <span>
+                      ESPACIO <b>sacar / golpe normal</b>
+                    </span>
+                    <div className="power-track">
+                      <i style={{ width: `${power * 100}%` }} />
+                    </div>
+                    <span>
+                      {power > 0
+                        ? `${Math.round(power * 100)}%`
+                        : 'MANTENÉ L PARA CARGAR EL REMATE'}
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="control-hints">
                 <span>
@@ -1082,25 +1336,13 @@ export default function PadelGame() {
                   className="touch-hit"
                   onPointerDown={(e) => {
                     e.currentTarget.setPointerCapture(e.pointerId);
-                    charge.current = performance.now();
+                    if (shot === 'remate') beginCharge();
+                    else quickHit();
                   }}
-                  onPointerUp={() => {
-                    if (state.phase === 'point') match.current?.nextPoint();
-                    else {
-                      input.current.power = Math.min(
-                        1,
-                        0.35 +
-                          (performance.now() -
-                            (charge.current ?? performance.now())) /
-                            950,
-                      );
-                      input.current.hit = true;
-                    }
-                    charge.current = null;
-                  }}
-                  onPointerCancel={() => (charge.current = null)}
+                  onPointerUp={releaseCharge}
+                  onPointerCancel={cancelCharge}
                 >
-                  GOLPEAR
+                  {shot === 'remate' ? 'CARGAR' : 'GOLPEAR'}
                 </button>
               </div>
             </>
@@ -1109,7 +1351,7 @@ export default function PadelGame() {
       )}
       {showSettings && (
         <GameDialog
-          title="Configurar partido"
+          title={screen === 'menu' ? 'Configurar partido' : 'Ajustar remate'}
           onClose={() => setShowSettings(false)}
         >
           <section className="dialog settings-panel">
@@ -1120,50 +1362,78 @@ export default function PadelGame() {
             >
               <X />
             </button>
-            <span className="eyebrow">ANTES DEL PRIMER PUNTO</span>
-            <h2>Tu partido.</h2>
+            <span className="eyebrow">
+              {screen === 'menu'
+                ? 'ANTES DEL PRIMER PUNTO'
+                : 'AJUSTES EN JUEGO'}
+            </span>
+            <h2>{screen === 'menu' ? 'Tu partido.' : 'Tu remate.'}</h2>
+            {screen === 'menu' && (
+              <>
+                <Choice
+                  label="Pareja rival"
+                  value={String(settings.opponent)}
+                  onChange={(v) => config({ opponent: Number(v) })}
+                  items={TEAMS.map((t, i) => ({
+                    value: String(i),
+                    label: t.name,
+                  })).filter((t) => Number(t.value) !== settings.team)}
+                />
+                <div className="settings-grid">
+                  <Choice
+                    label="Dificultad"
+                    value={settings.difficulty}
+                    onChange={(v) =>
+                      config({ difficulty: v as Settings['difficulty'] })
+                    }
+                    items={[
+                      { value: 'facil', label: 'Club · fácil' },
+                      { value: 'normal', label: 'Competición · normal' },
+                      { value: 'dificil', label: 'Profesional · difícil' },
+                    ]}
+                  />
+                  <Choice
+                    label="Duración"
+                    value={settings.format}
+                    onChange={(v) =>
+                      config({ format: v as Settings['format'] })
+                    }
+                    items={[
+                      { value: 'rapido', label: 'Set corto · 3 juegos' },
+                      { value: 'set', label: 'Un set · 6 juegos' },
+                      { value: 'partido', label: 'Partido · 3 sets' },
+                    ]}
+                  />
+                </div>
+              </>
+            )}
             <Choice
-              label="Pareja rival"
-              value={String(settings.opponent)}
-              onChange={(v) => config({ opponent: Number(v) })}
-              items={TEAMS.map((t, i) => ({
-                value: String(i),
-                label: t.name,
-              })).filter((t) => Number(t.value) !== settings.team)}
+              label="Ventana del remate perfecto"
+              value={settings.perfectDifficulty}
+              onChange={(v) =>
+                config({ perfectDifficulty: v as PerfectDifficulty })
+              }
+              items={[
+                { value: 'facil', label: 'Fácil · zona verde amplia' },
+                { value: 'normal', label: 'Normal · buen timing' },
+                { value: 'dificil', label: 'Exigente · precisión máxima' },
+              ]}
             />
-            <div className="settings-grid">
+            <p className="charge-setting-tip">
+              Sólo cambia el margen de la barra. La altura y la posición también
+              cuentan.
+            </p>
+            {screen === 'menu' && (
               <Choice
-                label="Dificultad"
-                value={settings.difficulty}
-                onChange={(v) =>
-                  config({ difficulty: v as Settings['difficulty'] })
-                }
-                items={[
-                  { value: 'facil', label: 'Club · fácil' },
-                  { value: 'normal', label: 'Competición · normal' },
-                  { value: 'dificil', label: 'Profesional · difícil' },
-                ]}
+                label="Torneo y escenario"
+                value={String(settings.venue)}
+                onChange={(v) => config({ venue: Number(v) })}
+                items={VENUES.map((v, i) => ({
+                  value: String(i),
+                  label: `${v.name} · ${v.arena}`,
+                }))}
               />
-              <Choice
-                label="Duración"
-                value={settings.format}
-                onChange={(v) => config({ format: v as Settings['format'] })}
-                items={[
-                  { value: 'rapido', label: 'Set corto · 3 juegos' },
-                  { value: 'set', label: 'Un set · 6 juegos' },
-                  { value: 'partido', label: 'Partido · 3 sets' },
-                ]}
-              />
-            </div>
-            <Choice
-              label="Torneo y escenario"
-              value={String(settings.venue)}
-              onChange={(v) => config({ venue: Number(v) })}
-              items={VENUES.map((v, i) => ({
-                value: String(i),
-                label: `${v.name} · ${v.arena}`,
-              }))}
-            />
+            )}
             <Choice
               label="Cámara"
               value={settings.camera}
@@ -1199,7 +1469,7 @@ export default function PadelGame() {
           </section>
         </GameDialog>
       )}
-      {screen === 'pause' && (
+      {screen === 'pause' && !showSettings && (
         <GameDialog
           title="Partido en pausa"
           onClose={() => changeScreen('play')}
@@ -1222,6 +1492,12 @@ export default function PadelGame() {
             </button>
             <button className="menu-action" onClick={help}>
               Controles y golpes <CircleHelp size={18} />
+            </button>
+            <button
+              className="menu-action"
+              onClick={() => setShowSettings(true)}
+            >
+              Ajustar remate <Settings2 size={18} />
             </button>
             {mode === 'circuito' && (
               <button
@@ -1279,7 +1555,7 @@ export default function PadelGame() {
                 </p>
                 <p>
                   <kbd>J</kbd> golpe normal · <kbd>K</kbd> globo · <kbd>L</kbd>{' '}
-                  remate.
+                  mantené para cargar el remate.
                 </p>
                 <p>
                   <kbd>U</kbd> bandeja · <kbd>I</kbd> víbora · <kbd>O</kbd>{' '}
@@ -1309,8 +1585,12 @@ export default function PadelGame() {
                   tras el rebote.
                 </p>
                 <p>
-                  Pegá cuando aparece «PEGÁ AHORA». No hace falta cargar ni
-                  confirmar con otra tecla.
+                  Remate: mantené L, apuntá con A/D y soltá en la zona verde.
+                  Elegí su dificultad en Configurar partido o durante la pausa.
+                </p>
+                <p>
+                  Para los demás golpes, pulsá la tecla cuando aparece «PEGÁ
+                  AHORA».
                 </p>
                 <p>
                   <kbd>TAB</kbd> cambiá de jugador. Tu compañero usa IA.
@@ -1353,8 +1633,9 @@ export default function PadelGame() {
                   red sin tocarla.
                 </p>
                 <p>
-                  Por tres y por cuatro exigen altura, posición y potencia. La
-                  recuperación exterior queda pendiente.
+                  El por tres sigue vivo afuera: salí por la puerta con WASD y
+                  devolvé antes del segundo pique. El por cuatro termina el
+                  punto.
                 </p>
               </div>
               <div>

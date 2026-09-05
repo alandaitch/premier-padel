@@ -2126,3 +2126,211 @@ div:has(> [data-slot='select-content'].padel-select) {
     font-size: 8px;
   }
 }
+
+/* V5: compact timing meter, with a stable court viewport during charge. */
+.screen-play .arena,
+.screen-pause .arena,
+.screen-help .arena,
+.screen-result .arena {
+  bottom: 210px;
+}
+.power-row {
+  min-height: 54px;
+}
+.smash-charge {
+  padding: 4px 10px 8px;
+  min-height: 54px;
+}
+.charge-caption,
+.charge-details {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+.charge-caption strong {
+  letter-spacing: 0.09em;
+  color: #e6f1e9;
+  font-size: 11px;
+}
+.charge-caption span {
+  color: #a9bec6;
+}
+.charge-caption kbd {
+  color: white;
+}
+.charge-track {
+  position: relative;
+  height: 13px;
+  margin: 7px 0 5px;
+  background: #030c13;
+  border: 1px solid #597080;
+  border-radius: 2px;
+  overflow: visible;
+}
+.charge-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--charge);
+  background: linear-gradient(90deg, #59bdce, #a9e7e3);
+  opacity: 0.72;
+}
+.charge-perfect-zone {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  background: #c7f465;
+  box-shadow: 0 0 12px #c7f433;
+  border: 1px solid #edffba;
+}
+.charge-needle {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: var(--charge);
+  width: 3px;
+  background: white;
+  box-shadow: 0 0 7px white;
+  transform: translateX(-50%);
+}
+.charge-details {
+  font-size: 10px;
+  color: #91acb8;
+}
+.charge-details > span:last-child {
+  color: #c7f465;
+}
+.is-charging .charge-caption strong {
+  color: #c7f465;
+}
+.is-late .charge-caption strong {
+  color: #ff8974;
+}
+.is-late .charge-fill {
+  background: #d87254;
+}
+.charge-setting-tip {
+  font-size: 12px;
+  color: #a9bec6;
+  margin-top: -4px;
+  margin-bottom: 19px;
+  line-height: 1.5;
+}
+.perfect-impact {
+  position: absolute;
+  pointer-events: none;
+  top: 17%;
+  left: 50%;
+  transform: translateX(-50%) rotate(-4deg);
+  text-align: center;
+  animation: perfect-hit 1.05s both;
+  z-index: 8;
+}
+.perfect-impact span {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  color: #fff;
+  text-shadow: 0 1px 7px #132530;
+}
+.perfect-impact strong {
+  display: block;
+  font-size: clamp(28px, 4vw, 54px);
+  font-style: italic;
+  font-weight: 900;
+  color: #e2ff85;
+  text-shadow:
+    0 3px 0 #1a4132,
+    0 0 24px #b6f54a77;
+}
+@keyframes perfect-hit {
+  0% {
+    opacity: 0;
+    scale: 1.2;
+  }
+  12% {
+    opacity: 1;
+    scale: 1;
+  }
+  65% {
+    opacity: 1;
+    translate: 0 0;
+  }
+  100% {
+    opacity: 0;
+    translate: 0 -22px;
+  }
+}
+.exterior-alert {
+  position: absolute;
+  top: 125px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  background: #c7f4e5;
+  color: #092c31;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 800;
+  pointer-events: none;
+}
+.player-label,
+.rally-info {
+  bottom: 221px;
+}
+.tactical-hint {
+  bottom: 248px;
+}
+@media (max-width: 600px) {
+  .screen-play .arena,
+  .screen-pause .arena,
+  .screen-help .arena,
+  .screen-result .arena {
+    bottom: 286px;
+  }
+  .charge-caption,
+  .charge-details {
+    gap: 4px;
+    font-size: 9px;
+  }
+  .charge-caption strong {
+    font-size: 9px;
+  }
+  .charge-caption span {
+    font-size: 9px;
+  }
+  .charge-details > span:first-child {
+    max-width: 64%;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .charge-details > span:last-child {
+    font-size: 8px;
+  }
+  .player-label {
+    bottom: 271px;
+  }
+  .rally-info {
+    bottom: auto;
+  }
+  .tactical-hint {
+    bottom: 291px;
+  }
+  .touch-controls {
+    bottom: 206px;
+  }
+  .exterior-alert {
+    top: 152px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .perfect-impact {
+    animation: none;
+  }
+}

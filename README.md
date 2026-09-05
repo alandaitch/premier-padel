@@ -1,6 +1,6 @@
 # Premier Padel
 
-Juego 3D de pádel en español. Cuarta edición jugable, inspirada en Premier Padel.
+Juego 3D de pádel en español. Quinta edición jugable, inspirada en Premier Padel.
 Implementación independiente con Three.js, React y Vinext/Vite. No modifica alandaitch.com.
 
 ## Jugar
@@ -14,7 +14,9 @@ Implementación independiente con Three.js, React y Vinext/Vite. No modifica ala
 - Configuración y títulos obtenidos guardados en este navegador.
 
 Teclado: WASD/flechas para moverse. J: golpe normal; K: globo; L: remate;
-U: bandeja; I: víbora; O: toque corto. Cada tecla ejecuta el golpe directamente.
+U: bandeja; I: víbora; O: toque corto. L se mantiene para cargar: A/D apuntan,
+soltar en verde busca un remate perfecto. La ventana se ajusta en configuración o pausa.
+Los demás golpes se ejecutan directamente.
 Espacio saca o pega normal. J adapta plano/volea/bajada; O adapta dejada/chiquita.
 Shift junto al golpe añade potencia; R cambia retorno/por 3/por 4; H: contrapared.
 B mantenida o botón «Esperar vidrio» para ceder espacio al rebote.
@@ -38,6 +40,11 @@ Remate con pique, rebote de fondo y vuelta sobre la red: sigue vivo para el rece
 El receptor puede alcanzar con la pala sin cruzar el cuerpo; el último equipo que golpeó no repite.
 Marcador de juegos/sets, tiebreak y Star Point 2026 con elección de lado de recepción. Pantalla final, revancha,
 siguiente ronda, título y vuelta al menú.
+
+Recuperación exterior habilitada: dos puertas en cada lateral y zonas libres.
+El por tres sigue vivo; el rival sale por la puerta y devuelve antes del segundo pique.
+Movimiento manual y de IA respetan el cerramiento. El por cuatro termina el punto.
+El apuntado del por tres corresponde al costado real de salida.
 
 Pelota con giro en tres ejes, resistencia del aire, Magnus y fricción en el contacto.
 El pique depende de velocidad, giro y superficie; se retiraron los impulsos artificiales por golpe.
@@ -65,9 +72,10 @@ npm test
 npm run build
 ```
 
-En V4 pasan las 37 pruebas, TypeScript, el build y el lint de los módulos `game/` modificados.
-El lint global conserva advertencias y errores previos en la UI base y en `app/padel-game.tsx`
-(reglas del compilador React y semántica accesible). No se considera una validación global limpia.
+V5 incorpora 45 pruebas de física y dos pruebas de carga.
+El lint global no pasa: la UI base y `app/padel-game.tsx` tienen observaciones
+del compilador React y preferencias de etiquetas semánticas, incluido el medidor personalizado.
+El lint de física, renderer, perfiles, sonido y carga sí pasa. No se declara lint global limpio.
 
 ## Estructura
 
@@ -76,8 +84,11 @@ El lint global conserva advertencias y errores previos en la UI base y en `app/p
 - `game/audio.ts`: audio espacial sintetizado con Web Audio.
 - `game/catalog.ts`: parejas, sedes y catálogo de golpes.
 - `game/player-profiles.ts`: identidad visual, altura, lateralidad e indumentaria.
+- `game/smash-charge.ts`: carga, potencia y ventanas de precisión.
+- `SMASH-V5.md`, `PHYSICS-V5.md`, `RENDERER-V5.md`: cambios, fuentes y límites de V5.
+- `PADEL-REVIEW-V5.md`: auditoría independiente contra Virtua Tennis 4 y técnicas reales.
 - `PHYSICS-V4.md`, `RENDERER-V4.md`, `PLAYERS-V4.md`: fuentes y alcance de la revisión.
-- `PADEL-REVIEW-V4.md`: auditoría independiente de esta edición.
+- `PADEL-REVIEW-V4.md`: auditoría independiente de la edición anterior.
 - `app/padel-game.tsx`: ciclo fijo 120 Hz, entradas, UI, torneo y persistencia local.
 - `game/physics.test.ts`: pruebas de reglas, trayectorias, ejercicios, táctica y partido completo.
 - `PADEL-DYNAMICS.md`: investigación primaria FIP/LTA y criterios de aceptación.
@@ -89,8 +100,8 @@ El lint global conserva advertencias y errores previos en la UI base y en `app/p
    giro junto al vidrio, apoyo/salto del remate y pala dirigida al contacto real.
    Falta naturalidad corporal y variedad equivalente a animación capturada.
 2. **Tacto y táctica.** Contacto asistido y margen amplio; spin y fricción aproximados.
-   IA sin estilos individuales, con errores determinísticos. No hay recuperación exterior,
-   falta por contacto corporal ni por tocar físicamente la red.
+   IA sin estilos individuales, con errores determinísticos. La recuperación exterior
+   ya funciona; faltan variedad de rescates bajos y faltas por contacto corporal/red.
 3. **Jugadores, público y materiales.** No hay likeness facial ni modelos escaneados.
    Hay rasgos, ropa, alturas y lateralidad propios; falta semejanza facial fina. El público resulta repetitivo.
    Los escenarios evocan las sedes; no reproducen sus estadios con exactitud.

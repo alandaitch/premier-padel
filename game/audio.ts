@@ -63,6 +63,56 @@ export class PadelAudio {
     const applause = /point|win|finish|match|game/.test(type);
     const glass = /wall|glass/.test(type);
     const bounce = /bounce/.test(type);
+    if (type === 'perfect') {
+      // A short racket crack, body thump and bright tail; the ball remains audible.
+      const crack = c.createBufferSource();
+      crack.buffer = this.noise(0.14);
+      const filter = c.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.value = 950;
+      crack.connect(filter).connect(gain);
+      gain.gain.setValueAtTime(0.28, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      crack.start();
+      for (const [frequency, delay, level] of [
+        [155, 0, 0.3],
+        [850, 0.045, 0.065],
+        [1280, 0.075, 0.035],
+      ]) {
+        const tone = c.createOscillator(),
+          envelope = c.createGain();
+        tone.type = 'sine';
+        tone.frequency.setValueAtTime(frequency, now + delay);
+        tone.frequency.exponentialRampToValueAtTime(
+          frequency * 0.5,
+          now + delay + 0.17,
+        );
+        envelope.gain.setValueAtTime(level, now + delay);
+        envelope.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.22);
+        tone.connect(envelope).connect(pan);
+        tone.start(now + delay);
+        tone.stop(now + delay + 0.25);
+        tone.onended = () => {
+          tone.disconnect();
+          envelope.disconnect();
+        };
+      }
+      crack.onended = () => {
+        crack.disconnect();
+        filter.disconnect();
+        gain.disconnect();
+      };
+      // All tails end before the final silent scheduled source disconnects the pan.
+      const cleanup = c.createOscillator();
+      cleanup.connect(c.createGain());
+      cleanup.start(now);
+      cleanup.stop(now + 0.36);
+      cleanup.onended = () => {
+        cleanup.disconnect();
+        pan.disconnect();
+      };
+      return;
+    }
     if (applause) {
       const n = c.createBufferSource();
       n.buffer = this.noise(1.7);

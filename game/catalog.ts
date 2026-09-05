@@ -111,7 +111,7 @@ export const SHOTS = [
     id: 'remate',
     name: 'Remate',
     key: '5',
-    tip: 'Bola alta y corta: traétela a tu campo, sacala por tres o por cuatro.',
+    tip: 'Mantené L, apuntá con A/D y soltá en verde. Traétela, por tres o por cuatro.',
   },
   {
     id: 'dejada',

@@ -1,8 +1,14 @@
 import * as THREE from 'three';
-import type { GameState } from './physics';
+import { COURT, type GameState } from './physics';
 import { matchAppearances, type PlayerAppearance } from './player-profiles';
 
 type CameraMode = 'tv' | 'cerca' | 'cenital';
+export type ChargePreview = {
+  active: boolean;
+  progress: number;
+  aim: number;
+  smash: boolean;
+};
 type Rig = {
   root: THREE.Group;
   body: THREE.Group;
@@ -35,6 +41,7 @@ type Rig = {
   leftPlanted: boolean;
   rightPlanted: boolean;
   feetReady: boolean;
+  load: number;
 };
 
 type ContactRecord = {
@@ -44,6 +51,7 @@ type ContactRecord = {
   time: number;
   playerId: number;
   shot: string;
+  quality?: string;
 };
 type BounceRecord = {
   x: number;
@@ -110,6 +118,38 @@ export class PadelRenderer {
   private fieldMaterial!: THREE.MeshStandardMaterial;
   private seatMaterial!: THREE.MeshStandardMaterial;
   private backdropMaterial!: THREE.MeshStandardMaterial;
+  private charge: ChargePreview = {
+    active: false,
+    progress: 0,
+    aim: 0,
+    smash: false,
+  };
+  private aimArrow = new THREE.ArrowHelper(
+    new THREE.Vector3(0, 0, -1),
+    new THREE.Vector3(),
+    1,
+    0xd5ef85,
+    0.4,
+    0.2,
+  );
+  private aimTarget = new THREE.Mesh(
+    new THREE.RingGeometry(0.24, 0.28, 48),
+    new THREE.MeshBasicMaterial({
+      color: 0xd5ef85,
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  private perfectRings: THREE.Mesh<
+    THREE.RingGeometry,
+    THREE.MeshBasicMaterial
+  >[] = [];
+  private perfectLight = new THREE.PointLight(0xffe7a6, 0, 3, 2);
+  private perfectAt = -100;
+  private perfectKey = '';
+  private exteriorFocus = 0;
 
   constructor(
     private container: HTMLElement,
@@ -132,10 +172,10 @@ export class PadelRenderer {
       ),
     );
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.05;
     this.renderer.setClearColor(0x090f19, 1);
     this.renderer.domElement.setAttribute(
       'aria-label',
@@ -147,6 +187,24 @@ export class PadelRenderer {
     this.scene.background = new THREE.Color(0x091322);
     this.scene.fog = new THREE.FogExp2(0x0a1420, 0.013);
     this.scene.add(this.court);
+    this.scene.add(this.aimArrow, this.aimTarget, this.perfectLight);
+    this.aimTarget.rotation.x = -Math.PI / 2;
+    this.aimArrow.visible = this.aimTarget.visible = false;
+    for (let i = 0; i < 2; i++) {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.13, 0.148, 48),
+        new THREE.MeshBasicMaterial({
+          color: i ? 0xffffff : 0xffd46b,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      );
+      ring.visible = false;
+      this.perfectRings.push(ring);
+      this.scene.add(ring);
+    }
     this.buildLights();
     this.buildCourt();
     this.buildStadium();
@@ -333,7 +391,7 @@ export class PadelRenderer {
   }
 
   private buildLights() {
-    this.hemisphere = new THREE.HemisphereLight(0xe6f0ff, 0x2c3947, 2.0);
+    this.hemisphere = new THREE.HemisphereLight(0xe6f0ff, 0x2c3947, 1.4);
     this.scene.add(this.hemisphere);
     const sun = (this.keyLight = new THREE.DirectionalLight(0xfffaf0, 3.1));
     sun.position.set(-8, 20, 10);
@@ -345,12 +403,12 @@ export class PadelRenderer {
     sun.shadow.camera.bottom = -17;
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 55;
-    sun.shadow.normalBias = 0.035;
+    sun.shadow.normalBias = 0.012;
     sun.shadow.bias = -0.0001;
     sun.shadow.radius = 4;
     sun.shadow.intensity = 0.62;
     this.scene.add(sun);
-    const fill = (this.fillLight = new THREE.DirectionalLight(0xc4e0ff, 1.6));
+    const fill = (this.fillLight = new THREE.DirectionalLight(0xc4e0ff, 1.2));
     fill.position.set(8, 15, -13);
     this.scene.add(fill);
     const rim = new THREE.DirectionalLight(0xdfffea, 0.7);
@@ -424,7 +482,7 @@ export class PadelRenderer {
       bumpMap: turf,
       bumpScale: 0.012,
     });
-    const field = this.box(10, 0.1, 20, this.fieldMaterial, 0, -0.04, 0);
+    const field = this.box(10, 0.1, 20, this.fieldMaterial, 0, -0.05, 0);
     field.receiveShadow = true;
     // Alternating very subtle brushed carpet bands, as seen under competition floodlights.
     const stripeMaterial = new THREE.MeshBasicMaterial({
@@ -434,12 +492,12 @@ export class PadelRenderer {
       depthWrite: false,
     });
     for (let z = -9; z < 10; z += 4)
-      this.box(10, 0.004, 2, stripeMaterial, 0, 0.015, z);
+      this.box(10, 0.002, 2, stripeMaterial, 0, 0.0015, z);
     const line = this.material(0xeef5f4, 0.95);
     for (const z of [-6.95, 6.95]) {
-      this.box(10, 0.012, 0.055, line, 0, 0.025, z);
-      this.box(0.055, 0.012, 6.95, line, 0, 0.025, z / 2);
-      this.box(0.055, 0.012, 0.22, line, 0, 0.025, z + Math.sign(z) * 0.11);
+      this.box(10, 0.003, 0.05, line, 0, 0.003, z);
+      this.box(0.05, 0.003, 6.95, line, 0, 0.003, z / 2);
+      this.box(0.05, 0.003, 0.22, line, 0, 0.003, z + Math.sign(z) * 0.11);
     }
     const black = this.material(0x14212c, 0.6, 0.62);
     const metal = this.material(0x34434c, 0.45, 0.7);
@@ -483,6 +541,8 @@ export class PadelRenderer {
       this.box(10, 0.035, 0.035, frameMaterial, 0, 3, z);
       this.box(10, 0.055, 0.055, black, 0, 0.04, z);
     }
+    const doorWidth = COURT.doorMaxZ - COURT.doorMinZ;
+    const doorCenter = (COURT.doorMaxZ + COURT.doorMinZ) / 2;
     // Regulation sides: corner glazing, wire panels, and playable exit doors near the net.
     for (const x of [-5, 5]) {
       for (const z of [-8, 8]) {
@@ -492,16 +552,76 @@ export class PadelRenderer {
         this.court.add(side);
         this.addMeshFence(4, 1, x, 3.5, z, Math.PI / 2, 0.2);
       }
-      for (const z of [-3.4, 3.4])
-        this.addMeshFence(5.2, 3, x, 1.5, z, Math.PI / 2, 0.23);
-      for (const z of [-10, -8, -6, -4, -2, -0.8, 0.8, 2, 4, 6, 8, 10]) {
+      // Two 1.10 m openings per side, separated by the net post.
+      for (const side of [-1, 1]) {
+        this.addMeshFence(
+          6 - COURT.doorMaxZ,
+          3,
+          x,
+          1.5,
+          (side * (6 + COURT.doorMaxZ)) / 2,
+          Math.PI / 2,
+          0.25,
+        );
+        this.addMeshFence(
+          doorWidth,
+          3 - COURT.doorHeight,
+          x,
+          (3 + COURT.doorHeight) / 2,
+          side * doorCenter,
+          Math.PI / 2,
+          0.25,
+        );
+        this.box(
+          0.055,
+          0.06,
+          doorWidth,
+          black,
+          x,
+          COURT.doorHeight + 0.03,
+          side * doorCenter,
+        );
+      }
+      this.addMeshFence(COURT.doorMinZ * 2, 3, x, 1.5, 0, Math.PI / 2, 0.2);
+      for (const side of [-1, 1])
+        this.box(0.07, 0.085, 4.8, black, x, 0.043, side * 3.6);
+      for (const z of [
+        -10,
+        -8,
+        -6,
+        -4,
+        -2,
+        -COURT.doorMaxZ - 0.0275,
+        -COURT.doorMinZ + 0.0275,
+        COURT.doorMinZ - 0.0275,
+        COURT.doorMaxZ + 0.0275,
+        2,
+        4,
+        6,
+        8,
+        10,
+      ]) {
         const height = Math.abs(z) >= 6 ? 4 : 3;
         this.box(0.055, height, 0.055, black, x, height / 2, z);
       }
-      for (const z of [-5.4, 5.4]) this.box(0.06, 0.06, 9.2, black, x, 3, z);
+      for (const z of [-5, 5]) this.box(0.06, 0.06, 10, black, x, 3, z);
       for (const z of [-8, 8]) this.box(0.06, 0.06, 4, black, x, 4, z);
-      const doorHeader = this.box(0.055, 0.055, 1.6, black, x, 2.7, 0);
-      doorHeader.castShadow = true;
+      // Safe external recovery area remains free of furniture and railings.
+      const exteriorMaterial = this.fieldMaterial.clone();
+      exteriorMaterial.color.setHex(0x537582);
+      const exterior = this.box(
+        4,
+        0.08,
+        8,
+        exteriorMaterial,
+        x + Math.sign(x) * 2,
+        -0.04,
+        0,
+      );
+      exterior.receiveShadow = true;
+      const edge = this.material(0x54869c, 0.97);
+      for (const z of [-4, 4])
+        this.box(4, 0.012, 0.04, edge, x + Math.sign(x) * 2, 0.018, z);
     }
     // Net mesh has individual woven squares, a subtly curved tape, and side tension posts.
     const netMap = this.textureCanvas(
@@ -521,7 +641,7 @@ export class PadelRenderer {
           ctx.stroke();
         }
       },
-      [5, 0.45],
+      [7, 0.6],
     );
     const netGeometry = new THREE.PlaneGeometry(10, 0.84, 30, 1);
     const positions = netGeometry.attributes.position;
@@ -543,38 +663,41 @@ export class PadelRenderer {
     );
     net.position.set(0, 0.47, 0);
     this.court.add(net);
-    const tapeCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(-5, 0.925, 0),
-      new THREE.Vector3(-2.5, 0.895, 0),
-      new THREE.Vector3(0, 0.885, 0),
-      new THREE.Vector3(2.5, 0.895, 0),
-      new THREE.Vector3(5, 0.925, 0),
-    ]);
+    const tapeGeometry = new THREE.PlaneGeometry(10, 0.06, 60, 1);
+    const tapePositions = tapeGeometry.attributes.position;
+    for (let i = 0; i < tapePositions.count; i++) {
+      const x = tapePositions.getX(i),
+        top = 0.88 + 0.04 * (x / 5) ** 2;
+      tapePositions.setY(i, top + (tapePositions.getY(i) > 0 ? 0 : -0.06));
+    }
     const tape = new THREE.Mesh(
-      new THREE.TubeGeometry(tapeCurve, 36, 0.027, 6, false),
-      this.material(0xedf2e8),
+      tapeGeometry,
+      new THREE.MeshStandardMaterial({
+        color: 0xf1f2e8,
+        roughness: 0.9,
+        side: THREE.DoubleSide,
+      }),
     );
-    tape.scale.z = 0.62;
     tape.castShadow = true;
     this.court.add(tape);
     for (const x of [-5.02, 5.02]) {
       this.cylinder(0.045, 0.045, 1.05, black, this.court, x, 0.525, 0);
-      this.box(0.28, 0.12, 0.3, black, x, 0.06, 0);
+      this.box(0.14, 0.045, 0.16, black, x, 0.0225, 0);
       const netLogo = this.makeBanner(
         'PREMIER',
         0.5,
-        0.115,
+        0.095,
         '#f4f4eb',
         '#20342d',
         60,
       );
-      netLogo.position.set(x > 0 ? 4.5 : -4.5, 0.9, 0.019);
+      netLogo.position.set(x > 0 ? 4.5 : -4.5, 0.865, 0.019);
       this.court.add(netLogo);
     }
     // Lower LED ribbons sit behind the glass; their silhouettes never hide the ball.
     for (const z of [-10.25, 10.25]) {
       const board = this.makeBanner(
-        'PREMIER PADEL      •      THE WORLD IS PADEL      •      PREMIER PADEL',
+        'QATAR AIRWAYS      •      PREMIER PADEL      •      QATAR AIRWAYS',
         10,
         0.52,
         '#07121e',
@@ -587,7 +710,7 @@ export class PadelRenderer {
     for (const x of [-5.3, 5.3]) {
       for (const z of [-7.4, 7.4]) {
         const panel = this.makeBanner(
-          'PREMIER PADEL',
+          z < 0 ? 'Wilson' : 'BULLPADEL',
           4,
           0.45,
           '#0c1721',
@@ -600,7 +723,7 @@ export class PadelRenderer {
       }
     }
     // Court-side competition furniture and personnel.
-    for (const x of [-7.2, 7.2]) {
+    for (const x of [-10.2, 10.2]) {
       const benchMaterial = this.material(0x344a59, 0.5);
       this.box(0.6, 0.12, 2.4, benchMaterial, x, 0.45, 3.3, this.scene);
       this.box(
@@ -655,17 +778,17 @@ export class PadelRenderer {
       0.12,
       0.8,
       this.material(0x596a74),
-      -6.15,
+      -10.15,
       1.75,
       0,
       this.scene,
     );
     for (const z of [-0.34, 0.34])
-      this.box(0.05, 1.75, 0.05, metal, -6.35, 0.875, z, this.scene);
+      this.box(0.05, 1.75, 0.05, metal, -10.35, 0.875, z, this.scene);
     for (let y = 0.2; y < 1.7; y += 0.3)
-      this.box(0.45, 0.04, 0.04, metal, -5.96, y, 0.4, this.scene);
-    this.box(0.05, 0.7, 0.8, black, -6.48, 2.06, 0, this.scene);
-    this.makeStaff(-6.16, 1.78, 0, Math.PI / 2, true);
+      this.box(0.45, 0.04, 0.04, metal, -9.96, y, 0.4, this.scene);
+    this.box(0.05, 0.7, 0.8, black, -10.48, 2.06, 0, this.scene);
+    this.makeStaff(-10.16, 1.78, 0, Math.PI / 2, true);
     this.makeStaff(6.7, 0, -9.8, -Math.PI / 2, false);
     this.makeStaff(-6.7, 0, -9.8, Math.PI / 2, false);
   }
@@ -680,7 +803,7 @@ export class PadelRenderer {
     opacity: number,
   ) {
     const positions: number[] = [];
-    const spacing = 0.15;
+    const spacing = 0.05;
     for (let xx = -width / 2; xx <= width / 2; xx += spacing)
       positions.push(xx, -height / 2, 0, xx, height / 2, 0);
     for (let yy = -height / 2; yy <= height / 2; yy += spacing)
@@ -733,9 +856,24 @@ export class PadelRenderer {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 4;
     this.textures.push(texture);
+    const bannerMaterial = new THREE.MeshBasicMaterial({
+      map: texture,
+      side: THREE.DoubleSide,
+    });
+    bannerMaterial.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#ifdef USE_MAP
+        vec2 bannerUv=vMapUv;
+        if(!gl_FrontFacing)bannerUv.x=1.0-bannerUv.x;
+        diffuseColor*=texture2D(map,bannerUv);
+      #endif`,
+      );
+    };
+    bannerMaterial.customProgramCacheKey = () => 'readable-banner-v5';
     return new THREE.Mesh(
       new THREE.PlaneGeometry(width, height),
-      new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }),
+      bannerMaterial,
     );
   }
 
@@ -758,7 +896,7 @@ export class PadelRenderer {
       this.box(25, 0.55 + row * 0.52, 0.89, concrete, 0, y / 2, z, this.scene);
       rows.push({ x: -11.7, y: y + 0.15, z, rot: 0, count: 38, step: 0.63 });
       for (const side of [-1, 1]) {
-        const x = side * (8.9 + row * 0.85);
+        const x = side * (10.6 + row * 0.85);
         this.box(
           0.86,
           0.55 + row * 0.52,
@@ -785,7 +923,16 @@ export class PadelRenderer {
     const seats = new THREE.InstancedMesh(seatGeo, seatMaterial, 900);
     const backs = new THREE.InstancedMesh(seatBackGeo, seatMaterial, 900);
     const crowdBody = new THREE.InstancedMesh(
-      new THREE.CylinderGeometry(0.15, 0.18, 0.49, 7),
+      new THREE.LatheGeometry(
+        [
+          new THREE.Vector2(0.115, -0.245),
+          new THREE.Vector2(0.14, -0.12),
+          new THREE.Vector2(0.176, 0.12),
+          new THREE.Vector2(0.17, 0.18),
+          new THREE.Vector2(0.09, 0.24),
+        ],
+        12,
+      ),
       this.material(0xffffff),
       750,
     );
@@ -794,6 +941,17 @@ export class PadelRenderer {
       this.material(0xffffff),
       750,
     );
+    const crowdHair = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(0.113, 9, 7),
+      this.material(0xffffff, 0.96),
+      750,
+    );
+    const crowdHands = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(0.042, 8, 6),
+      this.material(0xffffff, 0.78),
+      1500,
+    );
+    let crowdHandCount = 0;
     const crowdLegs = new THREE.InstancedMesh(
       new THREE.BoxGeometry(0.25, 0.29, 0.32),
       this.material(0xffffff),
@@ -888,6 +1046,23 @@ export class PadelRenderer {
             skinTones[Math.floor(this.random() * skinTones.length)],
           ),
         );
+        const hairChoice = this.random();
+        dummy.position.y += 0.047;
+        dummy.scale.set(1, hairChoice < 0.22 ? 1.2 : 0.73, 0.98);
+        dummy.updateMatrix();
+        crowdHair.setMatrixAt(spectator, dummy.matrix);
+        crowdHair.setColorAt(
+          spectator,
+          new THREE.Color(
+            hairChoice < 0.17
+              ? 0x6e5641
+              : hairChoice < 0.32
+                ? 0xaaa49b
+                : hairChoice < 0.44
+                  ? 0x9d793e
+                  : 0x292522,
+          ),
+        );
         dummy.position.y = row.y + 0.26;
         dummy.translateZ(0.1);
         dummy.scale.set(1, 1, 1);
@@ -904,12 +1079,16 @@ export class PadelRenderer {
         const trousers = new THREE.Color(
           this.random() > 0.4 ? 0x1b2b3b : 0x48525d,
         );
+        const gesture = this.random();
         for (const sign of [-1, 1]) {
+          const elbowY = gesture < 0.16 ? 0.7 : gesture < 0.3 ? 0.55 : 0.48;
+          const handY = gesture < 0.16 ? 0.84 : gesture < 0.3 ? 0.75 : 0.37;
+          const handX = gesture < 0.16 ? 0.055 : gesture < 0.3 ? 0.06 : 0.15;
           addLimb(
             crowdClothLimbs,
             clothLimbCount++,
             new THREE.Vector3(sign * 0.17, 0.77, 0),
-            new THREE.Vector3(sign * 0.21, 0.48, 0.07),
+            new THREE.Vector3(sign * 0.21, elbowY, 0.07),
             0.049,
             shirtColor,
             x,
@@ -920,8 +1099,8 @@ export class PadelRenderer {
           addLimb(
             crowdSkinLimbs,
             skinLimbCount++,
-            new THREE.Vector3(sign * 0.21, 0.48, 0.07),
-            new THREE.Vector3(sign * 0.15, 0.37, 0.27),
+            new THREE.Vector3(sign * 0.21, elbowY, 0.07),
+            new THREE.Vector3(sign * handX, handY, 0.27),
             0.038,
             skinColor,
             x,
@@ -929,6 +1108,17 @@ export class PadelRenderer {
             z,
             row.rot,
           );
+          const palm = new THREE.Vector3(
+            sign * handX,
+            handY,
+            0.27,
+          ).applyAxisAngle(new THREE.Vector3(0, 1, 0), row.rot);
+          dummy.position.set(x + palm.x, row.y + palm.y, z + palm.z);
+          dummy.rotation.set(0, row.rot, 0);
+          dummy.scale.set(0.7, 1, 0.68);
+          dummy.updateMatrix();
+          crowdHands.setMatrixAt(crowdHandCount, dummy.matrix);
+          crowdHands.setColorAt(crowdHandCount++, skinColor);
           addLimb(
             crowdClothLimbs,
             clothLimbCount++,
@@ -958,7 +1148,12 @@ export class PadelRenderer {
       }
     }
     seats.count = backs.count = seatIndex;
-    crowdBody.count = crowdHead.count = crowdLegs.count = spectator;
+    crowdBody.count =
+      crowdHead.count =
+      crowdLegs.count =
+      crowdHair.count =
+        spectator;
+    crowdHands.count = crowdHandCount;
     crowdClothLimbs.count = clothLimbCount;
     crowdSkinLimbs.count = skinLimbCount;
     this.scene.add(
@@ -969,13 +1164,15 @@ export class PadelRenderer {
       crowdLegs,
       crowdClothLimbs,
       crowdSkinLimbs,
+      crowdHair,
+      crowdHands,
     );
-    for (const x of [-8.05, 8.05]) {
+    for (const x of [-9.9, 9.9]) {
       this.box(0.05, 0.05, 23, rails, x, 1.02, -1.5, this.scene);
       for (let z = -12; z < 11; z += 2)
         this.box(0.05, 1, 0.05, rails, x, 0.5, z, this.scene);
       const panel = this.makeBanner(
-        'PREMIER PADEL     •     EL MEJOR PÁDEL DEL MUNDO',
+        'QATAR AIRWAYS     •     Red Bull     •     Wilson     •     MONDO',
         22,
         0.55,
         '#0a1521',
@@ -1178,12 +1375,21 @@ export class PadelRenderer {
           ctx.fill();
         }
       } else if (kit.pattern === 'shoulder') {
-        ctx.fillRect(0, 0, size, 85);
-        ctx.fillRect(98, 0, 42, size);
-        ctx.fillRect(374, 0, 42, size);
+        for (const x of [110, 374])
+          for (let stripe = 0; stripe < 3; stripe++)
+            ctx.fillRect(x + stripe * 9, 0, 5, 180);
       } else if (kit.pattern === 'blocks') {
         ctx.fillRect(0, 0, size, 95);
         ctx.fillRect(0, 385, size, 127);
+        ctx.globalAlpha = 0.38;
+        for (let y = 105; y < 385; y += 13) ctx.fillRect(0, y, size, 2);
+        ctx.beginPath();
+        ctx.moveTo(0, 220);
+        ctx.lineTo(size, 330);
+        ctx.lineTo(size, 370);
+        ctx.lineTo(0, 260);
+        ctx.fill();
+        ctx.globalAlpha = 1;
       }
       // Woven grain, seam stitching and broad compression folds keep the shirt fabric-like.
       for (let y = 0; y < size; y += 3) {
@@ -1229,8 +1435,39 @@ export class PadelRenderer {
     ctx.fillStyle = ink;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '800 64px Arial';
-    ctx.fillText(text, 256, 68, 490);
+    if (text === 'QATAR AIRWAYS') {
+      ctx.font = '600 70px Georgia';
+      ctx.fillText('QATAR', 256, 43, 470);
+      ctx.font = '500 29px Arial';
+      ctx.fillText('A I R W A Y S', 256, 104, 390);
+    } else if (text.toLowerCase() === 'adidas') {
+      for (let i = 0; i < 3; i++) {
+        ctx.save();
+        ctx.translate(70 + i * 28, 80 - i * 15);
+        ctx.rotate(-0.4);
+        ctx.fillRect(-10, -24 - i * 8, 19, 42 + i * 9);
+        ctx.restore();
+      }
+      ctx.font = '700 65px Arial';
+      ctx.fillText('adidas', 322, 73, 335);
+    } else if (text === 'HEAD') {
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.arc(95, 67, 34, Math.PI, TAU);
+      ctx.strokeStyle = ink;
+      ctx.stroke();
+      ctx.fillRect(90, 42, 10, 55);
+      ctx.font = '800 67px Arial';
+      ctx.fillText(text, 320, 70, 335);
+    } else {
+      ctx.font =
+        text === 'Reserve'
+          ? '500 72px Georgia'
+          : text === 'NOX'
+            ? 'italic 900 80px Arial'
+            : '800 64px Arial';
+      ctx.fillText(text, 256, 68, 490);
+    }
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     this.textures.push(texture);
@@ -1244,6 +1481,231 @@ export class PadelRenderer {
         depthWrite: false,
       }),
     );
+  }
+
+  private featureCurve(
+    points: number[][],
+    radius: number,
+    material: THREE.Material,
+    parent: THREE.Object3D,
+  ) {
+    const path = new THREE.CatmullRomCurve3(
+      points.map((p) => new THREE.Vector3(p[0], p[1], p[2])),
+    );
+    const feature = new THREE.Mesh(
+      new THREE.TubeGeometry(path, 20, radius, 6, false),
+      material,
+    );
+    parent.add(feature);
+    return feature;
+  }
+
+  private buildFaceFeatures(
+    profile: PlayerAppearance,
+    head: THREE.Group,
+    skin: THREE.Material,
+    darkSkin: THREE.Material,
+    hair: THREE.Material,
+  ) {
+    const ratios = profile.face ?? {
+      jaw: 1,
+      nose: 1,
+      eyes: 1,
+      brow: 1,
+      lip: 1,
+    };
+    // Outer ear and concha surround the sculpted facial surface.
+    for (const side of [-1, 1]) {
+      this.sphere(0.016, 0.032, 0.022, skin, head, side * 0.115, 0.003, 0.002);
+      this.sphere(
+        0.008,
+        0.019,
+        0.009,
+        darkSkin,
+        head,
+        side * 0.121,
+        0.003,
+        -0.006,
+      );
+      this.featureCurve(
+        [
+          [side * 0.126, 0.026, -0.001],
+          [side * 0.132, 0.007, -0.003],
+          [side * 0.125, -0.022, -0.004],
+        ],
+        0.0035,
+        skin,
+        head,
+      );
+    }
+
+    // A tapered bridge and nasal wings replace the former ball-shaped nose.
+    const noseGeometry = new THREE.BufferGeometry();
+    noseGeometry.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(
+        [
+          -0.012,
+          0.048,
+          -0.105,
+          0.012,
+          0.048,
+          -0.105,
+          -0.02,
+          -0.028,
+          -0.106,
+          0.02,
+          -0.028,
+          -0.106,
+          0,
+          0.031,
+          -0.13,
+          0,
+          -0.018,
+          -0.153 * ratios.nose,
+          -0.013,
+          -0.027,
+          -0.133,
+          0.013,
+          -0.027,
+          -0.133,
+        ],
+        3,
+      ),
+    );
+    noseGeometry.setIndex([
+      0, 4, 1, 0, 2, 6, 0, 6, 4, 4, 6, 5, 4, 5, 7, 4, 7, 1, 1, 7, 3, 2, 3, 7, 2,
+      7, 6, 6, 7, 5,
+    ]);
+    const noseIndices = noseGeometry.index!;
+    for (let i = 0; i < noseIndices.count; i += 3) {
+      const b = noseIndices.getX(i + 1);
+      noseIndices.setX(i + 1, noseIndices.getX(i + 2));
+      noseIndices.setX(i + 2, b);
+    }
+    noseGeometry.computeVertexNormals();
+    head.add(new THREE.Mesh(noseGeometry, skin));
+    for (const side of [-1, 1]) {
+      this.sphere(
+        0.009,
+        0.006,
+        0.011,
+        skin,
+        head,
+        side * 0.016,
+        -0.025,
+        -0.124,
+      );
+      this.sphere(
+        0.004,
+        0.0025,
+        0.005,
+        darkSkin,
+        head,
+        side * 0.013,
+        -0.03,
+        -0.132,
+      );
+    }
+    const sclera = this.material(0xbdb8a9, 0.8),
+      iris = this.material(0x433a28, 0.53),
+      pupil = this.material(0x181614, 0.42);
+    const browMaterial = this.material(
+      new THREE.Color(profile.hair).multiplyScalar(0.75),
+      0.97,
+    );
+    for (const side of [-1, 1]) {
+      const x = side * 0.041 * ratios.eyes;
+      this.sphere(0.018, 0.0064, 0.0055, sclera, head, x, 0.028, -0.108);
+      this.sphere(0.0058, 0.0057, 0.003, iris, head, x, 0.028, -0.113);
+      this.sphere(0.0028, 0.0034, 0.0015, pupil, head, x, 0.028, -0.115);
+      this.featureCurve(
+        [
+          [x - 0.019, 0.027, -0.106],
+          [x - 0.006, 0.035, -0.111],
+          [x + 0.009, 0.034, -0.11],
+          [x + 0.019, 0.027, -0.105],
+        ],
+        0.0025,
+        skin,
+        head,
+      );
+      this.featureCurve(
+        [
+          [x - 0.018, 0.025, -0.106],
+          [x, 0.022, -0.111],
+          [x + 0.018, 0.025, -0.106],
+        ],
+        0.0018,
+        darkSkin,
+        head,
+      );
+      const brow = this.featureCurve(
+        [
+          [x - 0.022, 0.045, -0.106],
+          [x - 0.005, 0.052, -0.112],
+          [x + 0.013, 0.05, -0.109],
+          [x + 0.022, 0.044, -0.104],
+        ],
+        0.0037 * ratios.brow,
+        browMaterial,
+        head,
+      );
+      brow.rotation.z = side * 0.045;
+    }
+    const lips = this.material(
+      new THREE.Color(profile.skin).lerp(new THREE.Color(0x814d42), 0.47),
+      0.74,
+    );
+    const width = 0.024 * ratios.lip;
+    this.featureCurve(
+      [
+        [-width, -0.065, -0.098],
+        [-0.007, -0.062, -0.104],
+        [0, -0.064, -0.106],
+        [0.007, -0.062, -0.104],
+        [width, -0.065, -0.098],
+      ],
+      0.0028,
+      lips,
+      head,
+    );
+    this.featureCurve(
+      [
+        [-width * 0.9, -0.067, -0.098],
+        [0, -0.071, -0.104],
+        [width * 0.9, -0.067, -0.098],
+      ],
+      0.0035,
+      lips,
+      head,
+    );
+    this.featureCurve(
+      [
+        [-width * 0.8, -0.065, -0.102],
+        [0, -0.066, -0.106],
+        [width * 0.8, -0.065, -0.102],
+      ],
+      0.0013,
+      darkSkin,
+      head,
+    );
+    // Fine hair strands follow the crown instead of appearing as isolated blocks.
+    for (let i = 0; i < 18; i++) {
+      const x = (i - 8.5) * 0.01;
+      const crown = 0.165 + Math.sqrt(Math.max(0, 0.011 - x * x)) * 0.17;
+      this.featureCurve(
+        [
+          [x, 0.102, -0.087],
+          [x - 0.006, crown, -0.066],
+          [x - 0.012, crown + 0.008, 0.012],
+          [x - 0.008, 0.128, 0.078],
+        ],
+        0.0018,
+        hair,
+        head,
+      );
+    }
   }
 
   private makePlayer(index: number, profile: PlayerAppearance): Rig {
@@ -1267,14 +1729,37 @@ export class PadelRenderer {
           : 1;
     root.scale.set(bodyScale * girth, bodyScale, bodyScale);
     const hand = profile.handedness === 'left' ? -1 : 1;
-    const skin = this.material(profile.skin, 0.7);
+    const skinMap = this.textureCanvas(256, (ctx, size) => {
+      ctx.fillStyle = profile.skin;
+      ctx.fillRect(0, 0, size, size);
+      for (let n = 0; n < 14000; n++) {
+        ctx.fillStyle =
+          this.random() > 0.5 ? 'rgba(255,226,204,.055)' : 'rgba(96,46,24,.04)';
+        ctx.fillRect(
+          this.random() * size,
+          this.random() * size,
+          0.5 + this.random(),
+          0.5 + this.random(),
+        );
+      }
+    });
+    const skin = new THREE.MeshStandardMaterial({
+      map: skinMap,
+      roughness: 0.6,
+    });
     const darkSkin = this.material(
       new THREE.Color(profile.skin).multiplyScalar(0.76),
       0.85,
     );
-    const shirt = new THREE.MeshStandardMaterial({
+    const shirt = new THREE.MeshPhysicalMaterial({
       map: this.uniformTexture(profile),
-      roughness: 0.96,
+      roughness: 0.92,
+      sheen: 0.72,
+      sheenColor: new THREE.Color(profile.kit.shirt).lerp(
+        new THREE.Color(0xffffff),
+        0.25,
+      ),
+      sheenRoughness: 0.85,
     });
     const shorts = this.material(profile.kit.shorts, 0.96);
     const socks = this.material(0xe4e8e3, 0.98);
@@ -1356,7 +1841,7 @@ export class PadelRenderer {
     );
     backBrand.position.set(0, 0.34, 0.15);
     upper.add(backBrand);
-    this.cylinder(0.065, 0.083, 0.13, skin, upper, 0, 0.77, 0, 20);
+    this.cylinder(0.057, 0.07, 0.13, skin, upper, 0, 0.77, 0, 20);
     const collar = new THREE.Mesh(
       new THREE.TorusGeometry(0.085, 0.012, 7, 28),
       trim,
@@ -1366,11 +1851,14 @@ export class PadelRenderer {
     upper.add(collar);
     const head = new THREE.Group();
     head.position.set(0, 0.885, -0.012);
+    head.scale.set(0.8, 0.94, 0.96);
     upper.add(head);
     const angular =
       profile.id.includes('galan') || profile.id.includes('lebron');
-    const jaw = angular ? 1.06 : profile.build === 'compact' ? 0.95 : 1;
-    this.anatomicalSurface(
+    const jaw =
+      profile.face?.jaw ??
+      (angular ? 1.06 : profile.build === 'compact' ? 0.95 : 1);
+    const faceSurface = this.anatomicalSurface(
       [
         [-0.127, 0.039, 0.047],
         [-0.097, 0.073 * jaw, 0.078],
@@ -1380,61 +1868,39 @@ export class PadelRenderer {
         [0.114, 0.099, 0.098],
         [0.159, 0.039, 0.043],
         [0.17, 0.003, 0.004],
-      ],
+      ].flatMap((ring, i, array) =>
+        i === array.length - 1
+          ? [ring as [number, number, number]]
+          : Array.from(
+              { length: 4 },
+              (_, step) =>
+                ring.map((n, axis) =>
+                  THREE.MathUtils.lerp(n, array[i + 1][axis], step / 4),
+                ) as [number, number, number],
+            ),
+      ),
       skin,
       head,
     );
-    this.sphere(
-      0.023,
-      0.031,
-      angular ? 0.046 : 0.04,
-      skin,
-      head,
-      0,
-      -0.008,
-      -0.11,
-    );
-    this.sphere(0.016, 0.032, 0.022, skin, head, -0.115, 0.003, 0.002);
-    this.sphere(0.016, 0.032, 0.022, skin, head, 0.115, 0.003, 0.002);
-    this.sphere(0.014, 0.027, 0.008, darkSkin, head, -0.119, 0.004, -0.01);
-    this.sphere(0.014, 0.027, 0.008, darkSkin, head, 0.119, 0.004, -0.01);
-    const eyeWhite = this.material(0xe0ddd3, 0.85),
-      iris = this.material(0x322c24, 0.6);
-    for (const side of [-1, 1]) {
-      this.sphere(
-        0.022,
-        0.01,
-        0.008,
-        eyeWhite,
-        head,
-        side * 0.043,
-        0.032,
-        -0.106,
-      );
-      this.sphere(0.008, 0.008, 0.004, iris, head, side * 0.043, 0.031, -0.113);
-      const brow = this.box(
-        0.042,
-        0.009,
-        0.012,
-        hair,
-        side * 0.043,
-        0.053,
-        -0.107,
-        head,
-      );
-      brow.rotation.z = side * (angular ? 0.12 : 0.04);
+    const facePosition = faceSurface.geometry.attributes.position;
+    for (let i = 0; i < facePosition.count; i++) {
+      const x = facePosition.getX(i),
+        y = facePosition.getY(i),
+        z = facePosition.getZ(i);
+      if (z >= -0.035) continue;
+      const gaussian = (cx: number, cy: number, rx: number, ry: number) =>
+        Math.exp(-(((x - cx) / rx) ** 2) - ((y - cy) / ry) ** 2);
+      let sculpt = 0;
+      for (const side of [-1, 1]) {
+        sculpt += 0.009 * gaussian(side * 0.065, -0.004, 0.038, 0.025);
+        sculpt += 0.004 * gaussian(side * 0.044, 0.048, 0.03, 0.015);
+        sculpt -= 0.002 * gaussian(side * 0.041, 0.028, 0.021, 0.009);
+      }
+      sculpt += 0.006 * gaussian(0, -0.102, 0.042, 0.022);
+      facePosition.setZ(i, z - sculpt);
     }
-    const mouth = this.box(
-      0.042,
-      0.005,
-      0.007,
-      darkSkin,
-      0,
-      -0.07,
-      -0.096,
-      head,
-    );
-    mouth.rotation.x = 0.12;
+    faceSurface.geometry.computeVertexNormals();
+    this.buildFaceFeatures(profile, head, skin, darkSkin, hair);
     const crownHeight = profile.hairStyle === 'crop' ? 0.184 : 0.201;
     this.anatomicalSurface(
       [
@@ -1544,27 +2010,43 @@ export class PadelRenderer {
       const shoulder = new THREE.Group();
       shoulder.position.set(side * 0.256, 0.639, 0);
       upper.add(shoulder);
-      this.sphere(0.088, 0.09, 0.091, shirt, shoulder, side * 0.003, -0.026, 0);
-      const sleeve = this.cylinder(
-        0.089,
-        0.078,
-        0.14,
+      this.anatomicalSurface(
+        [
+          [-0.143, 0.076, 0.075],
+          [-0.09, 0.084, 0.082],
+          [-0.03, 0.088, 0.083],
+          [0.025, 0.071, 0.068],
+          [0.062, 0.014, 0.014],
+        ],
         shirt,
         shoulder,
-        0,
-        -0.07,
-        0,
-        20,
       );
-      sleeve.scale.z = 0.97;
-      this.cylinder(0.077, 0.057, 0.225, skin, shoulder, 0, -0.208, 0, 18);
-      this.sphere(0.063, 0.105, 0.061, skin, shoulder, 0, -0.197, -0.004);
+      this.anatomicalSurface(
+        [
+          [-0.321, 0.054, 0.052],
+          [-0.275, 0.061, 0.057],
+          [-0.205, 0.071, 0.065],
+          [-0.138, 0.076, 0.07],
+        ],
+        skin,
+        shoulder,
+      );
       const elbow = new THREE.Group();
       elbow.position.y = -0.32;
       shoulder.add(elbow);
-      this.sphere(0.057, 0.058, 0.054, skin, elbow);
-      this.cylinder(0.058, 0.038, 0.255, skin, elbow, 0, -0.132, 0, 18);
-      this.sphere(0.052, 0.092, 0.048, skin, elbow, 0, -0.098, 0.002);
+      this.sphere(0.05, 0.049, 0.047, skin, elbow);
+      this.anatomicalSurface(
+        [
+          [-0.292, 0.037, 0.033],
+          [-0.24, 0.041, 0.037],
+          [-0.16, 0.049, 0.045],
+          [-0.09, 0.056, 0.05],
+          [-0.015, 0.054, 0.05],
+          [0.012, 0.047, 0.045],
+        ],
+        skin,
+        elbow,
+      );
       this.cylinder(0.044, 0.042, 0.055, socks, elbow, 0, -0.229, 0, 18);
       this.sphere(0.042, 0.064, 0.034, skin, elbow, 0, -0.288, -0.01);
       this.sphere(
@@ -1577,6 +2059,31 @@ export class PadelRenderer {
         -0.274,
         -0.019,
       );
+      for (let digit = 0; digit < 4; digit++) {
+        const dominant = side === hand;
+        const finger = this.cylinder(
+          0.0085,
+          0.007,
+          dominant ? 0.026 : 0.04,
+          skin,
+          elbow,
+          (digit - 1.5) * 0.016,
+          dominant ? -0.32 : -0.349,
+          dominant ? -0.027 : -0.011,
+          10,
+        );
+        finger.rotation.x = dominant ? 0.86 : 0.1;
+        this.sphere(
+          0.008,
+          0.009,
+          0.008,
+          skin,
+          elbow,
+          (digit - 1.5) * 0.016,
+          dominant ? -0.329 : -0.37,
+          dominant ? -0.018 : -0.008,
+        );
+      }
       return [shoulder, elbow] as const;
     };
     const leg = (side: -1 | 1) => {
@@ -1681,6 +2188,7 @@ export class PadelRenderer {
       leftPlanted: false,
       rightPlanted: false,
       feetReady: false,
+      load: 0,
     };
   }
 
@@ -1971,7 +2479,7 @@ export class PadelRenderer {
     this.keyLight.intensity = day ? 3.4 : warm ? 3.2 : 3.1;
     this.keyLight.position.set(day ? -12 : -8, day ? 25 : 20, day ? -3 : 10);
     this.fillLight.color.set(day ? 0xdbeeff : warm ? 0xc0d6ff : 0xc4e0ff);
-    this.hemisphere.intensity = day ? 2.6 : 2;
+    this.hemisphere.intensity = day ? 2.1 : 1.4;
     this.hemisphere.groundColor.set(
       day ? 0x6b6857 : warm ? 0x514b40 : 0x2c3947,
     );
@@ -2002,6 +2510,15 @@ export class PadelRenderer {
 
   setCamera(mode: CameraMode) {
     this.cameraMode = mode;
+  }
+
+  setChargePreview(preview: ChargePreview) {
+    this.charge = {
+      active: preview.active,
+      progress: clamp(preview.progress, 0, 1),
+      aim: clamp(preview.aim, -1, 1),
+      smash: preview.smash,
+    };
   }
 
   resize() {
@@ -2043,10 +2560,19 @@ export class PadelRenderer {
         preparation?: number;
         movementIntent?: string;
         reachAcross?: boolean;
+        outside?: boolean;
+        charging?: boolean;
+        charge?: number;
       };
-      const shot = String(player.shot);
+      const previewing = i === state.controlled && this.charge.active;
+      const isCharging = previewing || !!action.charging;
+      const chargeAmount = previewing
+        ? this.charge.progress
+        : (action.charge ?? 0);
+      const shot =
+        previewing && this.charge.smash ? 'remate' : String(player.shot);
       const age = contact?.playerId === player.id ? time - contact.time : 100;
-      const hasContact = age >= 0 && age < 0.42;
+      const hasContact = age >= 0 && age < 0.58;
       const contactShot = hasContact ? contact!.shot : shot;
       if (hasContact && rig.contactStamp !== contact!.time) {
         rig.contactStamp = contact!.time;
@@ -2072,7 +2598,7 @@ export class PadelRenderer {
       const step = Math.sin(rig.gaitPhase) * stride;
       const bounce = Math.abs(Math.cos(rig.gaitPhase)) * 0.026 * stride;
       const swing = clamp(player.swing || 0, 0, 1);
-      const follow = hasContact ? clamp(age / 0.36, 0, 1) : 1 - swing;
+      const follow = hasContact ? clamp(age / 0.44, 0, 1) : 1 - swing;
       const ballDistance = Math.hypot(
         state.ball.x - player.x,
         state.ball.z - player.z,
@@ -2081,6 +2607,7 @@ export class PadelRenderer {
       const preparation = clamp(
         Math.max(
           action.preparation ?? 0,
+          isCharging ? 0.45 + chargeAmount * 0.55 : 0,
           incoming && state.ball.vy < 1 && ballDistance < 2.8
             ? 1 - ballDistance / 3.2
             : 0,
@@ -2088,12 +2615,27 @@ export class PadelRenderer {
         0,
         1,
       );
-      const highPreparation = preparation * (state.ball.y > 1.8 ? 1 : 0);
+      const highPreparation =
+        preparation *
+        ((state.ball.y > 1.8 || (previewing && this.charge.smash)) &&
+        (preparation > 0.42 || previewing)
+          ? 1
+          : 0);
+      const loadingSmash = previewing
+        ? this.charge.smash
+        : state.ball.y > (player.height ?? rig.profile.height) + 0.5;
+      rig.load = THREE.MathUtils.lerp(
+        rig.load,
+        hasContact ? 0 : highPreparation,
+        Math.min(1, dt * 14),
+      );
       const lowContact = hasContact
         ? clamp((0.95 - contact!.y) / 2.3, 0, 0.32)
         : 0;
       const crouch = Math.max(
         lowContact,
+        !hasContact ? rig.load * (loadingSmash ? 0.16 : 0.095) : 0,
+        !hasContact && highPreparation > 0.12 ? (loadingSmash ? 0.14 : 0.1) : 0,
         defendingWall
           ? 0.09
           : (state.phase === 'rally' ? 0.055 : 0.025) + preparation * 0.025,
@@ -2115,16 +2657,17 @@ export class PadelRenderer {
           hasContact ? contact!.z - player.z : 0,
         )
         .normalize();
-      const visualX = player.x + this.contactDirection.x * lunge;
-      const visualZ = player.z + this.contactDirection.z * lunge;
-      // A legal over-net reach moves the racket only. The player's feet stay on their side.
-      const ownSideZ =
-        player.team === 0 ? Math.max(0.24, visualZ) : Math.min(-0.24, visualZ);
-      rig.root.position.set(visualX, 0, ownSideZ);
+      rig.root.position.set(player.x, 0, player.z);
       const defaultFacing = player.team === 0 ? 0 : Math.PI;
-      const facing = Number.isFinite(player.facing)
-        ? player.facing
-        : defaultFacing;
+      const overheadStance =
+        (!hasContact && highPreparation > 0.12) || (hasContact && overhead);
+      const facing = overheadStance
+        ? action.outside
+          ? Math.atan2(player.x, player.z)
+          : defaultFacing
+        : Number.isFinite(player.facing)
+          ? player.facing
+          : defaultFacing;
       let delta = ((facing - rig.root.rotation.y + Math.PI) % TAU) - Math.PI;
       if (delta < -Math.PI) delta += TAU;
       rig.root.rotation.y +=
@@ -2142,10 +2685,28 @@ export class PadelRenderer {
         hasContact && smash
           ? Math.sin(clamp((age - 0.25) / 0.17, 0, 1) * Math.PI) * 0.09
           : 0;
+      const lean = this.contactDirection
+        .clone()
+        .multiplyScalar(Math.min(lunge, 0.23));
+      const atDoor =
+        Math.abs(player.z) > COURT.doorMinZ + 0.12 &&
+        Math.abs(player.z) < COURT.doorMaxZ - 0.12;
+      if (!action.outside && !atDoor)
+        lean.x = clamp(player.x + lean.x, -4.76, 4.76) - player.x;
+      if (!action.outside)
+        lean.z =
+          clamp(
+            player.z + lean.z,
+            player.team === 0 ? 0.24 : -9.76,
+            player.team === 0 ? 9.76 : -0.24,
+          ) - player.z;
+      lean
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), -rig.root.rotation.y)
+        .divideScalar(rig.bodyScale);
       rig.body.position.set(
-        0,
+        lean.x,
         0.9 + bounce + jumpHeight - crouch - landingLoad,
-        0,
+        lean.z + (hasContact && smash ? -0.11 * Math.sin(follow * Math.PI) : 0),
       );
       rig.body.rotation.set(
         -stride * 0.05 - 0.015 - crouch * 0.4,
@@ -2154,7 +2715,9 @@ export class PadelRenderer {
           : highPreparation * -0.15,
         -step * 0.025,
       );
-      const coil = rig.hand * (rig.backhand ? -0.6 : 0.42);
+      const coil =
+        rig.hand *
+        (rig.backhand ? -0.68 : highPreparation > 0.12 ? 0.68 : 0.48);
       rig.chest.rotation.set(
         0,
         hasContact
@@ -2168,9 +2731,21 @@ export class PadelRenderer {
           (rig.backhand ? -0.42 : 0.42) *
           (1 - THREE.MathUtils.smoothstep(age, 0, 0.24))
         : rig.hand *
-          (rig.backhand ? -0.5 : 0.55) *
+          (rig.backhand ? -0.6 : 0.75) *
           preparation *
           (highPreparation > 0 ? 1 : 0.6);
+      if (!hasContact && highPreparation > 0.12) {
+        // The non-dominant shoulder faces the net, independent of the chase-facing angle.
+        rig.body.rotation.y = -rig.hand * 0.68;
+        rig.chest.rotation.y = -rig.hand * 0.64;
+      } else if (hasContact && overhead) {
+        const release = THREE.MathUtils.smoothstep(age, 0, 0.28);
+        const recover = 1 - THREE.MathUtils.smoothstep(age, 0.42, 0.58);
+        rig.body.rotation.y =
+          rig.hand * THREE.MathUtils.lerp(-0.25, 0.35, release) * recover;
+        rig.chest.rotation.y =
+          rig.hand * THREE.MathUtils.lerp(-0.3, 0.55, follow) * recover;
+      }
       const shortStep = defendingWall ? 0.68 : 1;
       rig.leftLeg.rotation.set(
         step * 0.6 * shortStep + 0.07 + crouch * 3.0,
@@ -2274,6 +2849,22 @@ export class PadelRenderer {
         offArm.rotation.x = 0.78;
         offElbow.rotation.x = 0.85;
       }
+      if (!hasContact && highPreparation > 0.12 && !serving) {
+        this.prepareOverhead(rig, 1, loadingSmash);
+      } else if (!hasContact && preparation > 0.3 && !serving) {
+        this.prepareGround(rig, Math.abs(player.z) < 4, state.ball.y < 0.85);
+      }
+      if (hasContact && smash) {
+        // Free hand folds toward the sternum as the dominant side extends.
+        this.poseArm(
+          rig,
+          false,
+          new THREE.Vector3(-rig.hand * 0.28, 0.5, -0.09),
+          new THREE.Vector3(-rig.hand * 0.1, 0.37, -0.18),
+          clamp(age / 0.07, 0, 1),
+        );
+        rig.body.rotation.x += -0.12 * Math.sin(follow * Math.PI);
+      }
       // The procedural stroke is only the preparation/recovery pose. At impact the
       // articulated arm is solved toward the physics contact, never the reverse.
       if (hasContact) {
@@ -2294,7 +2885,7 @@ export class PadelRenderer {
         ) {
           const across =
             contactShot === 'remate'
-              ? -0.2
+              ? -0.32
               : rig.backhand && !overhead
                 ? 0.36
                 : -0.42;
@@ -2313,15 +2904,20 @@ export class PadelRenderer {
             THREE.MathUtils.smoothstep(age, 0.025, 0.31),
           );
         }
-        const ikWeight = 1 - THREE.MathUtils.smoothstep(age, 0.32, 0.44);
+        const ikWeight = 1 - THREE.MathUtils.smoothstep(age, 0.42, 0.57);
         this.anchorRacket(rig, this.armTarget, ikWeight, outgoing);
+        // Forearm pronation appears after contact; it cannot rotate the ball trajectory.
+        if (smash)
+          rig.racket.rotateY(
+            rig.hand * Math.sin(clamp(age / 0.26, 0, 1) * Math.PI) * 0.5,
+          );
       } else if (highPreparation > 0.12 && !serving) {
         // Preserve the loaded overhead pose even when the lob is still above reach.
         // The neutral-ready IK must not pull this racket back down to the waist.
       } else if (
         preparation > 0.15 &&
         !serving &&
-        ballDistance < 2 &&
+        ballDistance < 1.15 &&
         state.ball.y < 3.2
       ) {
         this.armTarget.set(
@@ -2330,6 +2926,8 @@ export class PadelRenderer {
           state.ball.z,
         );
         this.anchorRacket(rig, this.armTarget, preparation * 0.65);
+      } else if (preparation > 0.3 && !serving) {
+        // Keep the compact prepared groundstroke until the ball enters contact range.
       } else if (!serving && swing < 0.01) {
         rig.root.updateMatrixWorld(true);
         this.armTarget.set(
@@ -2344,6 +2942,18 @@ export class PadelRenderer {
         offElbow.rotation.x = 1.15;
       }
       this.stabilizeFeet(rig, player.vx, player.vz, jumpHeight);
+      if (
+        speed < 2.2 &&
+        ((highPreparation > 0.12 && !hasContact) || hasContact)
+      ) {
+        this.strokeFootwork(
+          rig,
+          !hasContact ? highPreparation : 0,
+          hasContact ? age : -1,
+          smash || loadingSmash,
+          jumpHeight,
+        );
+      }
       this.lookDirection.set(
         state.ball.x - player.x,
         0,
@@ -2409,8 +3019,240 @@ export class PadelRenderer {
       time - tactical.lastBounce.time < 0.7
         ? 0.48
         : 0.31;
+    const outsidePlayers = state.players.filter(
+      (p) => (p as typeof p & { outside?: boolean }).outside,
+    );
+    const outsideX = outsidePlayers.length
+      ? outsidePlayers[0].x
+      : Math.abs(ball.x) > 5.1
+        ? clamp(ball.x, -8.5, 8.5)
+        : 0;
+    this.exteriorFocus = THREE.MathUtils.lerp(
+      this.exteriorFocus,
+      outsideX,
+      Math.min(1, dt * 4),
+    );
     this.updateCamera(ball.x, ball.z, dt);
+    this.updatePresentation(state, tactical, time);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private poseArm(
+    rig: Rig,
+    dominant: boolean,
+    elbowTarget: THREE.Vector3,
+    wristTarget: THREE.Vector3,
+    weight = 1,
+  ) {
+    const arm = dominant
+      ? rig.dominantArm
+      : rig.hand === 1
+        ? rig.leftArm
+        : rig.rightArm;
+    const forearm = dominant
+      ? rig.dominantElbow
+      : rig.hand === 1
+        ? rig.leftElbow
+        : rig.rightElbow;
+    const down = new THREE.Vector3(0, -1, 0);
+    const upperAxis = elbowTarget.clone().sub(arm.position).normalize();
+    const upperQ = new THREE.Quaternion().setFromUnitVectors(down, upperAxis);
+    const actualElbow = arm.position.clone().addScaledVector(upperAxis, 0.32);
+    const lowerAxis = wristTarget
+      .clone()
+      .sub(actualElbow)
+      .normalize()
+      .applyQuaternion(upperQ.clone().invert());
+    arm.quaternion.slerp(upperQ, weight);
+    forearm.quaternion.slerp(
+      new THREE.Quaternion().setFromUnitVectors(down, lowerAxis),
+      weight,
+    );
+  }
+
+  private prepareOverhead(rig: Rig, weight: number, smash: boolean) {
+    // Landmarks from the supplied four-frame sequence: loaded elbow behind the shoulder,
+    // forearm flexed, off hand pointing upward, racket drop behind the head for a smash.
+    this.poseArm(
+      rig,
+      true,
+      new THREE.Vector3(rig.hand * 0.48, 0.87, 0.15),
+      new THREE.Vector3(rig.hand * 0.27, 1.08, 0.14),
+      weight,
+    );
+    this.poseArm(
+      rig,
+      false,
+      new THREE.Vector3(-rig.hand * 0.3, 0.98, -0.17),
+      new THREE.Vector3(-rig.hand * 0.35, 1.3, -0.29),
+      weight,
+    );
+    const yAxis = new THREE.Vector3(
+      rig.hand * 0.1,
+      smash ? -0.8 : 0.91,
+      smash ? 0.59 : 0.39,
+    ).normalize();
+    const normal = new THREE.Vector3(0, 0, -1)
+      .addScaledVector(yAxis, yAxis.z)
+      .normalize();
+    const xAxis = new THREE.Vector3().crossVectors(yAxis, normal).normalize();
+    normal.crossVectors(xAxis, yAxis).normalize();
+    const desired = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(xAxis, yAxis, normal),
+    );
+    const chain = rig.dominantArm.quaternion
+      .clone()
+      .multiply(rig.dominantElbow.quaternion)
+      .invert();
+    rig.racket.quaternion.slerp(chain.multiply(desired), weight);
+  }
+
+  private prepareGround(rig: Rig, volley: boolean, low: boolean) {
+    // Compact padel preparation: the elbow stays close and the free hand balances the turn.
+    const across = rig.backhand ? -1 : 1;
+    this.poseArm(
+      rig,
+      true,
+      new THREE.Vector3(
+        rig.hand * (rig.backhand ? 0.05 : 0.4),
+        low ? 0.3 : volley ? 0.48 : 0.42,
+        volley ? -0.16 : 0.1,
+      ),
+      new THREE.Vector3(
+        rig.hand * across * (volley ? 0.24 : 0.36),
+        low ? 0.06 : volley ? 0.42 : 0.24,
+        volley ? -0.38 : -0.03,
+      ),
+      1,
+    );
+    this.poseArm(
+      rig,
+      false,
+      new THREE.Vector3(-rig.hand * 0.32, 0.47, -0.1),
+      new THREE.Vector3(-rig.hand * (rig.backhand ? 0.15 : 0.36), 0.42, -0.35),
+      0.85,
+    );
+    rig.racket.rotation.set(
+      Math.PI + (low ? 0.42 : 0),
+      rig.hand * 0.16,
+      -rig.hand * 0.14,
+    );
+  }
+
+  private strokeFootwork(
+    rig: Rig,
+    load: number,
+    age: number,
+    smash: boolean,
+    jump: number,
+  ) {
+    if (jump > 0.035) {
+      const scissor = THREE.MathUtils.smoothstep(age, 0.06, 0.28);
+      const dominantLeg = rig.hand === 1 ? rig.rightLeg : rig.leftLeg;
+      const otherLeg = rig.hand === 1 ? rig.leftLeg : rig.rightLeg;
+      const dominantKnee = rig.hand === 1 ? rig.rightKnee : rig.leftKnee;
+      dominantLeg.rotation.x = THREE.MathUtils.lerp(0.24, -0.55, scissor);
+      otherLeg.rotation.x = THREE.MathUtils.lerp(-0.16, 0.24, scissor);
+      dominantKnee.rotation.x = -0.22 - scissor * 0.62;
+      return;
+    }
+    const recovery = age < 0 ? 0 : THREE.MathUtils.smoothstep(age, 0.27, 0.52);
+    const stance =
+      age < 0 ? load : 1 - THREE.MathUtils.smoothstep(age, 0.44, 0.62);
+    rig.root.updateMatrixWorld(true);
+    for (const side of [-1, 1]) {
+      const dominant = side === rig.hand;
+      const rear = smash ? dominant : dominant !== rig.backhand;
+      const z = rear
+        ? THREE.MathUtils.lerp(0.3, smash ? -0.33 : 0.02, recovery)
+        : THREE.MathUtils.lerp(-0.3, 0.13, recovery);
+      const target = rig.root.localToWorld(
+        new THREE.Vector3(side * (0.185 + 0.085 * stance), 0.08, z * stance),
+      );
+      this.solveLeg(rig, side, target);
+      if (age >= 0 && dominant && recovery > 0.1 && recovery < 0.88) {
+        const ankle = side < 0 ? rig.leftAnkle : rig.rightAnkle;
+        ankle.rotation.x -= Math.sin(recovery * Math.PI) * 0.16;
+      }
+    }
+    rig.feetReady = false;
+  }
+
+  private updatePresentation(
+    state: GameState,
+    tactical: TacticalView,
+    time: number,
+  ) {
+    const player = state.players[state.controlled];
+    const active =
+      this.charge.active &&
+      !!player &&
+      state.phase !== 'finished' &&
+      state.phase !== 'point';
+    this.aimArrow.visible = this.aimTarget.visible = active;
+    if (active) {
+      const target = new THREE.Vector3(
+        this.charge.aim * 4.35,
+        0.043,
+        player.team === 0 ? -5.4 : 5.4,
+      );
+      if (this.charge.smash && state.smashMode === 'por3') {
+        target.x = (Math.sign(this.charge.aim) || 1) * 5.4;
+        target.z = player.team === 0 ? -3.4 : 3.4;
+      }
+      const origin = new THREE.Vector3(player.x, 0.043, player.z);
+      const direction = target.clone().sub(origin),
+        length = direction.length();
+      this.aimArrow.position.copy(origin);
+      this.aimArrow.setDirection(direction.normalize());
+      this.aimArrow.setLength(length, 0.43, 0.24);
+      const color =
+        this.charge.progress > 0.7 && this.charge.progress < 0.94
+          ? 0xffd86f
+          : 0xd2ef8c;
+      this.aimArrow.setColor(color);
+      this.aimTarget.material.color.setHex(color);
+      this.aimTarget.position.copy(target);
+      this.aimTarget.scale.setScalar(0.85 + this.charge.progress * 0.35);
+    }
+    const contact = tactical.contactPoint;
+    if (time < this.perfectAt) {
+      this.perfectAt = -100;
+      this.perfectKey = '';
+    }
+    if (contact?.quality === 'perfect' && time - contact.time < 0.15) {
+      const key = `${contact.playerId}:${contact.time}`;
+      if (key !== this.perfectKey) {
+        this.perfectKey = key;
+        this.perfectAt = contact.time;
+        this.perfectLight.position.set(contact.x, contact.y, contact.z);
+        for (const ring of this.perfectRings)
+          ring.position.copy(this.perfectLight.position);
+      }
+    }
+    const age = time - this.perfectAt;
+    for (let i = 0; i < this.perfectRings.length; i++) {
+      const ring = this.perfectRings[i],
+        phase = (age - i * 0.045) / 0.28;
+      ring.visible = phase >= 0 && phase < 1;
+      if (ring.visible) {
+        ring.quaternion.copy(this.camera.quaternion);
+        ring.scale.setScalar(1 + phase * 4);
+        ring.material.opacity = (1 - phase) * 0.8;
+      }
+    }
+    this.perfectLight.intensity =
+      age >= 0 && age < 0.22 ? 1.5 * (1 - age / 0.22) : 0;
+    const glow = age >= 0 && age < 0.6;
+    (this.trail.material as THREE.LineBasicMaterial).color.setHex(
+      glow ? 0xffd978 : 0xe2fc9c,
+    );
+    if (glow) (this.trail.material as THREE.LineBasicMaterial).opacity = 0.65;
+    if (age >= 0 && age < 0.16) {
+      this.camera.position.x += Math.sin(age * 95) * 0.024 * (1 - age / 0.16);
+      this.camera.position.y += Math.sin(age * 65) * 0.02 * (1 - age / 0.16);
+      this.camera.updateMatrixWorld(true);
+    }
   }
 
   private updateBallScale(camera: THREE.Camera) {
@@ -2696,6 +3538,13 @@ export class PadelRenderer {
       );
       this.desiredTarget.set(0, narrow ? 0.55 : 0, narrow ? -0.3 : 2);
       this.camera.fov = narrow ? 48 : 40;
+    }
+    if (Math.abs(this.exteriorFocus) > 0.25) {
+      const amount = clamp(Math.abs(this.exteriorFocus) / 7, 0, 1);
+      this.desiredTarget.x = this.exteriorFocus * 0.33;
+      this.desiredCamera.x += this.exteriorFocus * 0.2;
+      this.desiredCamera.y += amount * 1.6;
+      this.camera.fov += amount * (narrow ? 8 : 5);
     }
     this.cameraPosition.lerp(this.desiredCamera, 1 - Math.exp(-dt * 3.2));
     this.cameraTarget.lerp(this.desiredTarget, 1 - Math.exp(-dt * 3));

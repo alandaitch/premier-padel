@@ -2,7 +2,7 @@
  * Premier Padel simulation. Metres / seconds, positive Z is the home pair.
  * The camera keeps the home team near the viewer after changes of ends.
  * Rules reference: FIP Rules of Padel, application 01.01.2026.
- * Deliberate prototype limits: no exterior retrieval/body-contact faults;
+ * Deliberate prototype limits: no exhaustive body-contact faults;
  * racket aiming is assisted; passive impacts use a hollow-sphere impulse model.
  */
 export type Shot =
@@ -18,6 +18,7 @@ export type Shot =
   | 'contrapared';
 export type Smash = 'retorno' | 'por3' | 'por4';
 export type Team = 0 | 1;
+export type TimingQuality = 'perfect' | 'good' | 'late';
 export interface Input {
   moveX: number;
   moveZ: number;
@@ -28,6 +29,10 @@ export interface Input {
   switchPlayer?: boolean;
   waitWall?: boolean;
   smash?: Smash;
+  charging?: boolean;
+  charge?: number;
+  perfect?: boolean;
+  timingQuality?: TimingQuality;
 }
 export interface Ball {
   x: number;
@@ -56,7 +61,18 @@ export interface Player {
   handedness: 'left' | 'right';
   playingSide: 'left' | 'right';
   preparation: number;
-  movementIntent: 'espera' | 'red' | 'defensa' | 'giro' | 'pared' | 'remate';
+  movementIntent:
+    | 'espera'
+    | 'red'
+    | 'defensa'
+    | 'giro'
+    | 'pared'
+    | 'remate'
+    | 'exterior'
+    | 'regreso';
+  outside: boolean;
+  charging: boolean;
+  charge: number;
   reachAcross: boolean;
 }
 export interface Score {
@@ -99,7 +115,10 @@ export interface GameState {
     | 'pared'
     | 'doble-pared'
     | 'retorno'
+    | 'exterior'
     | 'punto';
+  ballOutside: boolean;
+  exteriorSide: -1 | 0 | 1;
   tacticalHint: string;
   wallBounces: number;
   returnedToHitter: boolean;
@@ -113,6 +132,7 @@ export interface GameState {
     time: number;
     playerId: number;
     shot: Shot;
+    quality?: TimingQuality;
   } | null;
   lastBounce: {
     x: number;
@@ -140,6 +160,7 @@ export interface MatchOptions {
   autoPlay?: boolean;
   scoring?: 'ventaja' | 'star';
   drill?: 'libre' | 'pared' | 'doble-pared' | 'remate';
+  exteriorPlay?: boolean;
   playerProfiles?: Array<{
     height: number;
     handedness: 'left' | 'right';
@@ -153,6 +174,12 @@ export const COURT = {
   netHeight: 0.88,
   sideHeight: 3,
   endHeight: 4,
+  doorMinZ: 0.1,
+  doorMaxZ: 1.2,
+  doorHeight: 2.2,
+  exteriorWidth: 4,
+  exteriorHalfLength: 4,
+  playerRadius: 0.22,
 } as const;
 export const SHOT_NAMES: Record<Shot, string> = {
   plano: 'Golpe plano',
@@ -450,6 +477,7 @@ interface FlightAssessment {
   height: number;
   landing: { x: number; z: number } | null;
   walls: number;
+  exit?: Ball;
 }
 /** Used only to aim the racket; it runs the same passive ball/surface model. */
 function assessLaunch(launch: Ball, team: Team): FlightAssessment {
@@ -476,6 +504,7 @@ function assessLaunch(launch: Ball, team: Team): FlightAssessment {
       if (b.y - R > top)
         return {
           kind: bounced ? 'por3' : 'fault',
+          exit: { ...b },
           height: b.y,
           landing,
           walls,
@@ -572,17 +601,17 @@ function aimSmash(
     smash === 'retorno'
       ? [4.7, 5.8, 6.8, 7.8, 8.5]
       : smash === 'por3'
-        ? [2.0, 3.2, 4.4]
+        ? [2.0, 3.2, 4.4, 5.5]
         : [1.0, 1.7, 2.5];
   const widths =
     smash === 'por3'
-      ? [0.8, 1.6, 2.4, 3.2]
+      ? [0, 0.4, 0.8, 1.2, 1.6, 2.4, 3.2]
       : [clamp(from.x * 0.3 + aim * 1.1, -3, 3)];
   const times =
     smash === 'retorno'
       ? [0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5]
       : smash === 'por3'
-        ? [0.2, 0.24, 0.28, 0.32]
+        ? [0.16, 0.2, 0.24, 0.28, 0.32]
         : [0.14, 0.18, 0.22, 0.26];
   let best = { ball: fallback, target: { x: fallback.x, z: -sign * 4.5 } },
     bestScore = -1e9;
@@ -594,20 +623,42 @@ function aimSmash(
           z: -sign * depth,
         };
         const spin = strokeSpin(from, target, 'remate', power, aim, smash);
+        if (smash === 'por3') {
+          spin.x *= 0.5;
+          spin.z *= 0.5;
+        }
         const ball = solveTrajectory(from, target, t, spin);
         const speed = Math.hypot(ball.vx, ball.vy, ball.vz);
         if (speed > 22 + power * 19) continue;
         const outcome = assessLaunch(ball, team);
         if (['net', 'fault', 'long'].includes(outcome.kind)) continue;
+        if (
+          smash === 'por3' &&
+          outcome.kind === 'por3' &&
+          Math.sign(outcome.exit?.x ?? 0) !== side
+        )
+          continue;
         const desired = outcome.kind === smash;
+        let safeRetrieval = false;
+        if (smash === 'por3' && outcome.exit) {
+          const outside = { ...outcome.exit };
+          for (let i = 0; i < 360 && (outside.y > 2.3 || outside.vy > 0); i++)
+            integrateBall(outside, 1 / 120);
+          safeRetrieval =
+            Math.abs(outside.x) < 8.7 && Math.abs(outside.z) < 3.7;
+        }
         const requestedSpeed = 20 + power * 18;
         const score =
-          (desired ? 1000 : 0) -
+          (desired ? 1000 : 0) +
+          (safeRetrieval ? 100 : 0) -
           (smash === 'retorno'
             ? Math.abs(speed - requestedSpeed) * 30 +
               Math.abs(outcome.height - 2.4)
-            : Math.abs(outcome.height - (smash === 'por3' ? 3.5 : 4.7)) * 10 +
-              Math.abs(speed - requestedSpeed));
+            : smash === 'por3'
+              ? Math.abs(outcome.height - 3.8) * 3 +
+                Math.abs(speed - requestedSpeed) * 5
+              : Math.abs(outcome.height - 4.7) * 10 +
+                Math.abs(speed - requestedSpeed));
         if (score > bestScore) {
           best = { ball, target };
           bestScore = score;
@@ -682,6 +733,8 @@ export class PadelMatch {
   private bufferedPower = 0.6;
   private bufferedAim = 0;
   private bufferedSmash: Smash = 'retorno';
+  private bufferedQuality: TimingQuality = 'good';
+  private bufferedCharged = false;
   private requestedWall = false;
   private plannedWalls = 0;
   private plannedPlayer = 0;
@@ -707,6 +760,7 @@ export class PadelMatch {
       autoPlay: options.autoPlay ?? false,
       scoring: options.scoring ?? 'star',
       drill: options.drill ?? 'libre',
+      exteriorPlay: options.exteriorPlay ?? true,
       playerProfiles: options.playerProfiles ?? [],
     };
     this.keeper = new ScoreKeeper(
@@ -746,6 +800,9 @@ export class PadelMatch {
         preparation: 0,
         movementIntent: 'espera',
         reachAcross: false,
+        outside: false,
+        charging: false,
+        charge: 0,
       })),
       score: this.keeper.score,
       phase: 'serve',
@@ -768,6 +825,8 @@ export class PadelMatch {
       ballBounce: 0,
       predictedBounce: { x: -2.4, z: -5.8 },
       ballSituation: 'saque',
+      ballOutside: false,
+      exteriorSide: 0,
       tacticalHint: 'Saque y subida de la pareja a la red',
       wallBounces: 0,
       returnedToHitter: false,
@@ -827,16 +886,26 @@ export class PadelMatch {
       this.emit('miss', 'Golpe fuera de alcance');
     }
     if (input.hit) {
-      this.hitBuffer = 0.42;
+      this.bufferedCharged =
+        input.shot === 'remate' && (input.charge ?? 0) > 0.2;
+      this.hitBuffer = this.bufferedCharged ? 0.85 : 0.42;
       this.bufferedShot = input.shot;
       this.bufferedPower = clamp(input.power, 0, 1);
       this.bufferedAim = clamp(input.aim, -1, 1);
       this.bufferedSmash = input.smash ?? 'retorno';
+      this.bufferedQuality =
+        input.timingQuality ?? (input.perfect ? 'perfect' : 'good');
     }
     if (input.switchPlayer && !this.switchWasDown && s.phase !== 'serve')
       s.controlled = s.controlled === 0 ? 1 : 0;
     this.switchWasDown = !!input.switchPlayer;
-    for (const p of s.players) p.swing = Math.max(0, p.swing - dt * 2.6);
+    for (const p of s.players) {
+      p.swing = Math.max(0, p.swing - dt * 2.6);
+      p.charging =
+        p.id === s.controlled && !!input.charging && !this.options.autoPlay;
+      p.charge = p.charging ? clamp(input.charge ?? 0, 0, 1) : 0;
+      if (p.charging) p.shot = input.shot;
+    }
     if (s.phase === 'finished') {
       this.hitWasDown = input.hit;
       return;
@@ -900,7 +969,10 @@ export class PadelMatch {
           speed,
           dt,
         );
-      else this.movePlayer(p, targets[p.id].x, targets[p.id].z, speed, dt);
+      else {
+        const waypoint = this.routePlayer(p, targets[p.id]).waypoint;
+        this.movePlayer(p, waypoint.x, waypoint.z, speed, dt);
+      }
       p.energy = clamp(
         p.energy + (Math.hypot(p.vx, p.vz) > 4.5 ? -0.018 : 0.026) * dt,
         0.35,
@@ -926,7 +998,11 @@ export class PadelMatch {
           : 0;
       p.reachAcross =
         p.team === s.incomingTeam && s.returnedToHitter && Math.abs(p.z) < 1.4;
+      if (p.charging)
+        p.preparation = Math.max(p.preparation, 0.25 + p.charge * 0.75);
       if (p.preparation > 0.3 && s.ball.y > 1.9) p.movementIntent = 'remate';
+      if (p.outside)
+        p.movementIntent = p.team === s.incomingTeam ? 'exterior' : 'regreso';
     }
     this.separatePlayers();
     s.canHit = this.canContact(
@@ -940,6 +1016,9 @@ export class PadelMatch {
         this.bufferedPower,
         this.bufferedAim,
         this.bufferedSmash,
+        !this.bufferedCharged && this.hitBuffer < 0.1
+          ? 'late'
+          : this.bufferedQuality,
       );
       this.hitBuffer = 0;
     } else {
@@ -994,6 +1073,13 @@ export class PadelMatch {
     s.serveAttempt = 1;
     s.serviceMotion = 0;
     s.ballSituation = 'saque';
+    s.ballOutside = false;
+    s.exteriorSide = 0;
+    for (const p of s.players) {
+      p.outside = false;
+      p.charging = false;
+      p.charge = 0;
+    }
     s.wallBounces = 0;
     s.returnedToHitter = false;
     s.contactPoint = null;
@@ -1064,6 +1150,8 @@ export class PadelMatch {
     this.emit('ready');
   }
   private placeServeBall() {
+    this.state.ballOutside = false;
+    this.state.exteriorSide = 0;
     const s = this.state,
       p = s.players[s.server];
     Object.assign(s.ball, {
@@ -1143,7 +1231,11 @@ export class PadelMatch {
     this.emit('serve', 'Saque diagonal · Esperá el pique para devolver');
   }
 
-  private recordContact(p: Player, shot: Shot) {
+  private recordContact(
+    p: Player,
+    shot: Shot,
+    quality: TimingQuality = 'good',
+  ) {
     const s = this.state;
     s.lastHitterId = p.id;
     s.contactPoint = {
@@ -1153,6 +1245,7 @@ export class PadelMatch {
       time: s.time,
       playerId: p.id,
       shot,
+      quality,
     };
   }
 
@@ -1174,8 +1267,24 @@ export class PadelMatch {
       sideOf(b.z) === this.lastHitter &&
       Math.abs(b.z) < 0.88 &&
       b.y > 0.96;
-    if (sideOf(b.z) !== p.team && !reachingAcross) return false;
-    if (p.z * signFor(p.team) < 0.35) return false;
+    const outsideContact =
+      this.options.exteriorPlay &&
+      s.ballOutside &&
+      Math.abs(p.x) > COURT.halfWidth - COURT.playerRadius &&
+      this.inSafeArea(b);
+    if (sideOf(b.z) !== p.team && !reachingAcross && !outsideContact)
+      return false;
+    if (p.z * signFor(p.team) < 0.35 && !p.outside) return false;
+    // A racket cannot reach through a side wall from an inside defender.
+    if (s.ballOutside && !outsideContact) return false;
+    if (!s.ballOutside && p.outside && Math.abs(b.x) < 4.7) return false;
+    if (
+      p.x * b.x > 0 &&
+      (Math.abs(p.x) - 5) * (Math.abs(b.x) - 5) < 0 &&
+      b.y < (Math.abs(b.z) > 8 ? 4 : 3) &&
+      !this.inDoor(b.z, b.y, R)
+    )
+      return false;
     if (this.serveLive && !this.bounced) return false;
     if (
       p.id === s.controlled &&
@@ -1235,6 +1344,7 @@ export class PadelMatch {
     const netPair = opponents.every((other) => Math.abs(other.z) < 4.8);
     const openWidth = Math.abs(opponents[0].x - opponents[1].x);
     const comfortable = distance(p, b) < 0.9 && b.y > 0.55;
+    if (s.ballOutside) return s.ball.y < 1.4 ? 'globo' : 'plano';
     if (s.returnedToHitter) return 'volea';
     if (s.wallBounces > 0) {
       if (b.y > p.height * 0.78 && depth > 5 && b.vz * signFor(p.team) < 0)
@@ -1273,6 +1383,7 @@ export class PadelMatch {
     power: number,
     aim: number,
     smash: Smash = 'retorno',
+    timingQuality: TimingQuality = 'good',
   ) {
     const s = this.state,
       b = s.ball;
@@ -1288,6 +1399,22 @@ export class PadelMatch {
     if (shot === 'bajada' && !wallExit) shot = b.y > 1.65 ? 'bandeja' : 'plano';
     if (shot === 'volea' && this.bounced && !s.returnedToHitter)
       shot = wallExit && b.y > 1.35 ? 'bajada' : 'plano';
+    const quality: TimingQuality =
+      timingQuality === 'perfect' &&
+      shot === 'remate' &&
+      b.y > p.height + 0.35 &&
+      b.vy <= 0 &&
+      distance(p, b) < 0.95
+        ? 'perfect'
+        : timingQuality === 'late'
+          ? 'late'
+          : 'good';
+    power =
+      quality === 'perfect'
+        ? Math.min(1, power + 0.07)
+        : quality === 'late'
+          ? power * 0.88
+          : power;
     const automatic = this.options.autoPlay || p.id !== s.controlled;
     const err = (this.random() - 0.5) * (automatic ? 0.28 : 0);
     let target = {
@@ -1417,6 +1544,32 @@ export class PadelMatch {
       launch = aimContrapared(from, p.team, power, aim);
       target = { x: aim * 3, z: -sign * 6.5 };
     }
+    if (s.ballOutside) {
+      // Assisted outside return chooses only a real entry: over the side fence.
+      target = { x: clamp(aim * 2.5, -3.5, 3.5), z: -sign * 5.8 };
+      const horizontal = Math.hypot(target.x - from.x, target.z - from.z);
+      let outsideTime = Math.max(1.2, horizontal / 9);
+      for (let attempt = 0; attempt < 12; attempt++) {
+        launch = solveTrajectory(
+          from,
+          target,
+          outsideTime,
+          strokeSpin(from, target, 'globo', power, aim, smash),
+        );
+        const check = { ...launch };
+        let clears = false;
+        for (let i = 0; i < 480; i++) {
+          integrateBall(check, 1 / 120);
+          if (Math.abs(check.x) <= 5 + R) {
+            clears = check.y - R > (Math.abs(check.z) > 8 ? 4 : 3);
+            break;
+          }
+          if (check.y < R) break;
+        }
+        if (clears) break;
+        outsideTime += 0.14;
+      }
+    }
     Object.assign(b, launch);
     if (mishit) {
       // A rushed lob tends to sail long; a poorly centred drive loses lift.
@@ -1427,7 +1580,7 @@ export class PadelMatch {
     }
     this.lastHitter = p.team;
     this.lastHitterId = p.id;
-    this.recordContact(p, shot);
+    this.recordContact(p, shot, quality);
     this.bounced = false;
     this.bounces = 0;
     this.serveLive = false;
@@ -1449,7 +1602,7 @@ export class PadelMatch {
     s.lastShot = shot;
     s.predictedBounce = target;
     s.canHit = false;
-    s.ballSituation = 'vuelo';
+    s.ballSituation = s.ballOutside ? 'exterior' : 'vuelo';
     p.shot = shot;
     p.swing = 1;
     p.preparation = 0;
@@ -1573,7 +1726,7 @@ export class PadelMatch {
   private collisions(oldZ: number) {
     const s = this.state,
       b = s.ball;
-    const crossedNet = oldZ * b.z < 0;
+    const crossedNet = oldZ * b.z < 0 && Math.abs(b.x) <= 5 + R;
     if (crossedNet && b.y - R < 0.88 + Math.abs(b.x) * 0.008) {
       this.recordBounce('red');
       if (this.serveLive) {
@@ -1615,6 +1768,10 @@ export class PadelMatch {
     if (b.y <= R && b.vy < 0) {
       b.y = R;
       if (!this.bounced) {
+        if (Math.abs(b.x) > 5 || Math.abs(b.z) > 10) {
+          this.failReturn('Primer pique fuera de la cancha');
+          return;
+        }
         if (sideOf(b.z) === this.lastHitter) {
           this.failReturn('La pelota quedó en tu campo');
           return;
@@ -1637,9 +1794,11 @@ export class PadelMatch {
         this.bounces++;
         this.finishPoint(
           this.lastHitter,
-          s.returnedToHitter
-            ? 'Remate que vuelve · Segundo pique'
-            : 'Doble pique',
+          s.ballOutside
+            ? 'Segundo pique exterior'
+            : s.returnedToHitter
+              ? 'Remate que vuelve · Segundo pique'
+              : 'Doble pique',
           true,
         );
         return;
@@ -1649,42 +1808,82 @@ export class PadelMatch {
       this.recordBounce('suelo');
       this.emit('bounce');
     }
-    if (Math.abs(b.x) + R > 5 && b.x * b.vx > 0) {
+    if (!s.ballOutside && Math.abs(b.x) + R > 5 && b.x * b.vx > 0) {
       const wallHeight = Math.abs(b.z) > 8 ? 4 : 3;
-      if (b.y - R > wallHeight) {
-        this.outOfCourt('Remate por 3');
+      if (b.y - R > wallHeight || this.inDoor(b.z, b.y, R)) {
+        if (!this.options.exteriorPlay) {
+          if (this.serveLive && this.inDoor(b.z, b.y, R)) {
+            this.serveFault('Saque por la puerta sin juego exterior');
+            return;
+          }
+          this.outOfCourt(
+            b.y - R > wallHeight ? 'Remate por 3' : 'Salida por la puerta',
+          );
+          return;
+        }
+        if (this.serveLive && this.serveNet && this.bounced) {
+          this.repeatServe();
+          return;
+        }
+        s.ballOutside = true;
+        s.exteriorSide = Math.sign(b.x) as -1 | 1;
+        s.ballSituation = 'exterior';
+        s.tacticalHint = 'Salí por la puerta y devolvé antes del segundo pique';
+        this.emit(
+          'outside',
+          b.y - R > wallHeight
+            ? 'Por 3 · Recuperación exterior habilitada'
+            : 'Salida por la puerta · Sigue en juego',
+        );
+      } else {
+        const mesh = Math.abs(b.z) < 6 || b.y > 3;
+        if (this.serveLive && this.bounced && mesh) {
+          this.serveFault('Saque a la malla después del pique');
+          return;
+        }
+        if (!this.bounced && sideOf(b.z) !== this.lastHitter) {
+          this.failReturn('Pared antes del primer pique');
+          return;
+        }
+        if (!this.bounced && mesh) {
+          this.failReturn('Malla del propio campo');
+          return;
+        }
+        b.x = Math.sign(b.x) * (5 - R);
+        this.latestImpact = collideBall(
+          b,
+          { x: -Math.sign(b.x), y: 0, z: 0 },
+          mesh ? 'mesh' : 'glass',
+        );
+        this.recordBounce(mesh ? 'malla' : 'vidrio');
+        this.emit(
+          mesh ? 'mesh' : 'glass',
+          mesh
+            ? 'Rebote en la malla'
+            : s.wallBounces > 1
+              ? 'Doble pared · Sigue en juego'
+              : 'Rebote en el vidrio',
+        );
+      }
+    } else if (s.ballOutside && Math.abs(b.x) < 5 + R && b.x * b.vx < 0) {
+      const top = Math.abs(b.z) > 8 ? 4 : 3;
+      if (b.y - R > top || this.inDoor(b.z, b.y, R)) {
+        s.ballOutside = false;
+        s.exteriorSide = 0;
+        s.ballSituation = 'vuelo';
+        this.emit('outside-return', 'Devolución desde afuera · Sigue en juego');
+      } else {
+        if (this.bounced)
+          this.finishPoint(
+            this.lastHitter,
+            'La pelota tocó el exterior del cerramiento',
+            true,
+          );
+        else this.failReturn('Devolución contra el exterior del cerramiento');
         return;
       }
-      const mesh = Math.abs(b.z) < 6 || b.y > 3;
-      if (this.serveLive && this.bounced && mesh) {
-        this.serveFault('Saque a la malla después del pique');
-        return;
-      }
-      if (!this.bounced && sideOf(b.z) !== this.lastHitter) {
-        this.failReturn('Pared antes del primer pique');
-        return;
-      }
-      if (!this.bounced && mesh) {
-        this.failReturn('Malla del propio campo');
-        return;
-      }
-      b.x = Math.sign(b.x) * (5 - R);
-      this.latestImpact = collideBall(
-        b,
-        { x: -Math.sign(b.x), y: 0, z: 0 },
-        mesh ? 'mesh' : 'glass',
-      );
-      this.recordBounce(mesh ? 'malla' : 'vidrio');
-      this.emit(
-        mesh ? 'mesh' : 'glass',
-        mesh
-          ? 'Rebote en la malla'
-          : s.wallBounces > 1
-            ? 'Doble pared · Sigue en juego'
-            : 'Rebote en el vidrio',
-      );
     }
-    if (Math.abs(b.z) + R > 10 && b.z * b.vz > 0) {
+    if (!s.ballOutside && Math.abs(b.z) + R > 10 && b.z * b.vz > 0) {
       if (b.y - R > 4) {
         this.outOfCourt('Remate por 4');
         return;
@@ -1807,6 +2006,106 @@ export class PadelMatch {
     );
   }
 
+  private inDoor(z: number, y: number, radius = 0) {
+    return (
+      Math.abs(z) > COURT.doorMinZ + radius &&
+      Math.abs(z) < COURT.doorMaxZ - radius &&
+      y + radius < COURT.doorHeight
+    );
+  }
+  private inSafeArea(point: { x: number; z: number }) {
+    return (
+      Math.abs(point.x) <= 5 + COURT.exteriorWidth &&
+      Math.abs(point.z) <= COURT.exteriorHalfLength
+    );
+  }
+  private routePlayer(p: Player, target: { x: number; z: number }) {
+    const targetOutside = Math.abs(target.x) > 5;
+    const ownOutside = Math.abs(p.x) > 5;
+    if (!targetOutside && !ownOutside)
+      return { waypoint: target, length: distance(p, target) };
+    if (targetOutside && ownOutside && p.x * target.x > 0) {
+      const waypoint =
+        Math.abs(p.x) < 5.35
+          ? {
+              x: Math.sign(p.x) * 5.45,
+              z: (signFor(p.team) * (COURT.doorMinZ + COURT.doorMaxZ)) / 2,
+            }
+          : target;
+      return {
+        waypoint,
+        length: distance(p, waypoint) + distance(waypoint, target),
+      };
+    }
+    const side = Math.sign(targetOutside ? target.x : p.x) || 1;
+    const z = (signFor(p.team) * (COURT.doorMinZ + COURT.doorMaxZ)) / 2;
+    const inner = { x: side * 4.55, z },
+      outer = { x: side * 5.45, z };
+    if (targetOutside) {
+      const waypoint =
+        Math.abs(p.x) < 4.65 && Math.abs(p.z - z) > 0.12 ? inner : outer;
+      return {
+        waypoint,
+        length:
+          distance(p, inner) + distance(inner, outer) + distance(outer, target),
+      };
+    }
+    const waypoint =
+      Math.abs(p.x) > 5.35 && Math.abs(p.z - z) > 0.12 ? outer : inner;
+    return {
+      waypoint,
+      length:
+        distance(p, outer) + distance(outer, inner) + distance(inner, target),
+    };
+  }
+  private constrainPlayer(p: Player, oldX: number, oldZ: number) {
+    const radius = COURT.playerRadius,
+      sign = signFor(p.team);
+    if (!this.options.exteriorPlay) {
+      p.x = clamp(p.x, -4.55, 4.55);
+      p.z = sign * clamp(p.z * sign, 0.4, 9.5);
+      p.outside = false;
+      return;
+    }
+    p.x = clamp(
+      p.x,
+      -5 - COURT.exteriorWidth + radius,
+      5 + COURT.exteriorWidth - radius,
+    );
+    // Sweep across the wall plane: only the player's own protected doorway is open.
+    const nearWall =
+      (Math.abs(p.x) > 5 - radius && Math.abs(oldX) < 5 + radius) ||
+      (Math.abs(p.x) < 5 + radius && Math.abs(oldX) > 5 - radius);
+    if (nearWall) {
+      const gate =
+        Math.abs(p.z) > COURT.doorMinZ + radius &&
+        Math.abs(p.z) < COURT.doorMaxZ - radius &&
+        p.z * sign > 0;
+      if (!gate) {
+        p.x =
+          Math.sign(oldX || p.x) *
+          (Math.abs(oldX) > 5 ? 5 + radius : 5 - radius);
+        p.vx = 0;
+      }
+    }
+    if (Math.abs(p.x) <= 5 - radius + 1e-8) {
+      p.z = sign * clamp(p.z * sign, 0.4, 9.5);
+    } else if (Math.abs(p.x) >= 5 + radius - 1e-8) {
+      p.z = clamp(
+        p.z,
+        -COURT.exteriorHalfLength + radius,
+        COURT.exteriorHalfLength - radius,
+      );
+    } else {
+      // Prevent sliding sideways through the doorpost while crossing the gap.
+      p.z =
+        sign *
+        clamp(p.z * sign, COURT.doorMinZ + radius, COURT.doorMaxZ - radius);
+    }
+    if (Math.abs(p.z - oldZ) < 1e-8) p.vz = 0;
+    p.outside = Math.abs(p.x) > 5;
+  }
+
   private movePlayer(
     p: Player,
     x: number,
@@ -1821,11 +2120,11 @@ export class PadelMatch {
     const factor = 1 - Math.exp(-15 * dt);
     p.vx += ((len > 0.02 ? (dx / len) * desired : 0) - p.vx) * factor;
     p.vz += ((len > 0.02 ? (dz / len) * desired : 0) - p.vz) * factor;
-    p.x = clamp(p.x + p.vx * dt, -4.55, 4.55);
-    p.z =
-      p.team === 0
-        ? clamp(p.z + p.vz * dt, 0.4, 9.5)
-        : clamp(p.z + p.vz * dt, -9.5, -0.4);
+    const oldX = p.x,
+      oldZ = p.z;
+    p.x += p.vx * dt;
+    p.z += p.vz * dt;
+    this.constrainPlayer(p, oldX, oldZ);
   }
   private separatePlayers() {
     const players = this.state.players;
@@ -1835,6 +2134,10 @@ export class PadelMatch {
     ]) {
       const d = distance(a, b);
       if (d > 0.001 && d < 0.75) {
+        const ax = a.x,
+          az = a.z,
+          bx = b.x,
+          bz = b.z;
         const push = (0.75 - d) * 0.5;
         const dx = (a.x - b.x) / d,
           dz = (a.z - b.z) / d;
@@ -1842,6 +2145,8 @@ export class PadelMatch {
         b.x -= dx * push;
         a.z += dz * push;
         b.z -= dz * push;
+        this.constrainPlayer(a, ax, az);
+        this.constrainPlayer(b, bx, bz);
       }
     }
   }
@@ -1853,38 +2158,60 @@ export class PadelMatch {
     let bounceCount = this.bounces,
       walls = s.wallBounces;
     const samples: Array<
-      Ball & { t: number; bounces: number; walls: number; returned: boolean }
+      Ball & {
+        t: number;
+        bounces: number;
+        walls: number;
+        returned: boolean;
+        outside: boolean;
+      }
     > = [];
     let returned = s.returnedToHitter;
+    let outside = s.ballOutside;
     for (let i = 1; i <= 95; i++) {
       const oldZ = ball.z;
       integrateBall(ball, 0.035);
 
-      if (oldZ * ball.z < 0 && ball.y < 0.92) break;
+      if (oldZ * ball.z < 0 && Math.abs(ball.x) < 5 && ball.y < 0.92) break;
       if (ball.y < R) {
         bounceCount++;
         if (
           bounceCount > 1 ||
-          (!this.bounced && sideOf(ball.z) === this.lastHitter)
+          (!this.bounced &&
+            (sideOf(ball.z) === this.lastHitter || Math.abs(ball.x) > 5))
         )
           break;
         ball.y = R;
         collideBall(ball, { x: 0, y: 1, z: 0 }, 'turf');
       }
-      if (Math.abs(ball.x) > 5 - R && ball.x * ball.vx > 0) {
+      if (!outside && Math.abs(ball.x) > 5 - R && ball.x * ball.vx > 0) {
         const mesh = Math.abs(ball.z) < 6 || ball.y > 3;
-        if (ball.y > (Math.abs(ball.z) > 8 ? 4 : 3)) break;
-        if (bounceCount === 0 && (sideOf(ball.z) !== this.lastHitter || mesh))
-          break;
-        ball.x = Math.sign(ball.x) * (5 - R);
-        collideBall(
-          ball,
-          { x: -Math.sign(ball.x), y: 0, z: 0 },
-          mesh ? 'mesh' : 'glass',
-        );
-        if (!mesh && bounceCount > 0) walls++;
+        if (
+          ball.y - R > (Math.abs(ball.z) > 8 ? 4 : 3) ||
+          this.inDoor(ball.z, ball.y, R)
+        ) {
+          if (!this.options.exteriorPlay) break;
+          outside = true;
+        } else {
+          if (bounceCount === 0 && (sideOf(ball.z) !== this.lastHitter || mesh))
+            break;
+          ball.x = Math.sign(ball.x) * (5 - R);
+          collideBall(
+            ball,
+            { x: -Math.sign(ball.x), y: 0, z: 0 },
+            mesh ? 'mesh' : 'glass',
+          );
+          if (!mesh && bounceCount > 0) walls++;
+        }
+      } else if (outside && Math.abs(ball.x) < 5 + R && ball.x * ball.vx < 0) {
+        if (
+          ball.y - R > (Math.abs(ball.z) > 8 ? 4 : 3) ||
+          this.inDoor(ball.z, ball.y, R)
+        )
+          outside = false;
+        else break;
       }
-      if (Math.abs(ball.z) > 10 - R && ball.z * ball.vz > 0) {
+      if (!outside && Math.abs(ball.z) > 10 - R && ball.z * ball.vz > 0) {
         const mesh = ball.y > 3;
         if (
           ball.y > 4 ||
@@ -1899,7 +2226,7 @@ export class PadelMatch {
         );
         if (!mesh && bounceCount > 0) walls++;
       }
-      if (bounceCount > 0 && sideOf(ball.z) === this.lastHitter)
+      if (!outside && bounceCount > 0 && sideOf(ball.z) === this.lastHitter)
         returned = true;
       samples.push({
         ...ball,
@@ -1907,6 +2234,7 @@ export class PadelMatch {
         bounces: bounceCount,
         walls,
         returned,
+        outside,
       });
     }
     return samples;
@@ -1924,6 +2252,49 @@ export class PadelMatch {
       s.wallBounces,
     );
     const firstWall = samples.find((p) => p.walls > s.wallBounces);
+    let exterior: { x: number; z: number; player: number; t: number } | null =
+      null;
+    if (this.options.exteriorPlay && samples.some((sample) => sample.outside)) {
+      let bestScore = Infinity;
+      const allowed =
+        this.options.training && incoming === 0 && !this.options.autoPlay
+          ? [s.players[s.controlled]]
+          : pair;
+      for (const sample of samples) {
+        if (
+          !sample.outside ||
+          !this.inSafeArea(sample) ||
+          sample.y < 0.3 ||
+          sample.y > 2.4
+        )
+          continue;
+        const target = {
+          x: Math.sign(sample.x) * clamp(Math.abs(sample.x) - 0.2, 5.45, 8.7),
+          z: clamp(sample.z, -3.65, 3.65),
+        };
+        for (const p of allowed) {
+          const route = this.routePlayer(p, target);
+          const available = Math.max(
+            0,
+            sample.t - Math.max(0, this.reactionUntil - s.time),
+          );
+          const pace =
+            incoming === 0
+              ? 5.7
+              : this.options.difficulty === 'dificil'
+                ? 6.1
+                : this.options.difficulty === 'facil'
+                  ? 4.65
+                  : 5.4;
+          const late = Math.max(0, route.length - 0.75 - pace * available);
+          const score = late * 15 + sample.t + Math.abs(sample.y - 1.2) * 0.15;
+          if (score < bestScore) {
+            bestScore = score;
+            exterior = { ...target, player: p.id, t: sample.t };
+          }
+        }
+      }
+    }
     const deepBall = Math.abs(s.predictedBounce.z) > 6.8;
     const defending = pair.reduce((sum, p) => sum + Math.abs(p.z), 0) / 2 > 4.8;
     const lobPassed = s.lastShot === 'globo' && (s.ball.y > 3.05 || defending);
@@ -1984,11 +2355,16 @@ export class PadelMatch {
     }
     const wantWall =
       !aerial &&
+      !exterior &&
       maxWalls > 0 &&
       ((deepBall && (defending || lobPassed)) ||
         (this.requestedWall && incoming === 0) ||
         drillWall);
-    if (s.lastShot === 'remate' && s.smashMode === 'retorno') {
+    if (exterior) {
+      this.plannedWalls = 0;
+      s.teamTactics[incoming] = 'recuperación exterior';
+      s.tacticalHint = 'Buscá la puerta y seguí la pelota por afuera';
+    } else if (s.lastShot === 'remate' && s.smashMode === 'retorno') {
       // Read a powerful smash off the back wall and close the net for the return.
       this.plannedWalls = 0;
       this.teamDepth[incoming] = 1.3;
@@ -2033,9 +2409,10 @@ export class PadelMatch {
             ? 5.9
             : 5.3;
     let chosen: { x: number; z: number; player: number; t: number } | null =
-      aerial;
+      exterior ?? aerial;
     for (const sample of samples) {
       if (chosen) break;
+      if (sample.outside) continue;
       if (
         sample.y < 0.28 ||
         sample.y > 2.85 ||
@@ -2077,6 +2454,7 @@ export class PadelMatch {
     if (!chosen) {
       const eligible = samples.filter(
         (p) =>
+          !p.outside &&
           p.walls >= this.plannedWalls &&
           p.bounces <= 1 &&
           p.y > 0.25 &&
@@ -2103,8 +2481,9 @@ export class PadelMatch {
     this.plannedContactTime = s.time + chosen.t;
     result[chosen.player] = { x: chosen.x, z: chosen.z };
     const partnerId = incoming === 0 ? 1 - chosen.player : 5 - chosen.player;
-    const partnerDepth =
-      this.plannedWalls > 0
+    const partnerDepth = exterior
+      ? 2.6
+      : this.plannedWalls > 0
         ? clamp(Math.abs(chosen.z) - 0.45, 5.8, 8.1)
         : clamp(
             Math.abs(chosen.z),
