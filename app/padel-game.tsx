@@ -38,6 +38,7 @@ import { PadelRenderer } from '@/game/renderer';
 import { PadelAudio } from '@/game/audio';
 import { TEAMS, VENUES, SHOTS } from '@/game/catalog';
 import { keyboardShot, SHOT_KEYS } from '@/game/controls';
+import { matchAppearances, teamAppearances } from '@/game/player-profiles';
 
 type Screen = 'menu' | 'play' | 'pause' | 'help' | 'result';
 type Mode = 'partido' | 'circuito' | 'entrenamiento';
@@ -167,6 +168,10 @@ export default function PadelGame() {
   const config = (patch: Partial<Settings>) =>
     setSettings((p) => ({ ...p, ...patch }));
   useEffect(() => {
+    // A scrolled short menu must never crop the scoreboard when a match starts.
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [screen]);
+  useEffect(() => {
     settingsRef.current = settings;
     renderer.current?.setCamera(settings.camera);
     renderer.current?.setVenue(VENUES[settings.venue].id);
@@ -190,6 +195,17 @@ export default function PadelGame() {
     hydrated.current = true;
   }, []);
   useEffect(() => {
+    if (screenRef.current !== 'menu' || !renderer.current) return;
+    const profiles = matchAppearances(settings.team, settings.opponent);
+    renderer.current.setPlayers(profiles);
+    match.current = new PadelMatch({
+      autoPlay: true,
+      gamesToWin: 3,
+      setsToWin: 1,
+      playerProfiles: profiles,
+    });
+  }, [settings.team, settings.opponent]);
+  useEffect(() => {
     if (!host.current) return;
     let raf = 0;
     let previous = performance.now();
@@ -204,6 +220,10 @@ export default function PadelGame() {
       renderer.current = new PadelRenderer(host.current, {
         quality: 'alta',
         venue: VENUES[settingsRef.current.venue].id,
+        players: matchAppearances(
+          settingsRef.current.team,
+          settingsRef.current.opponent,
+        ),
       });
       renderer.current.setCamera(settingsRef.current.camera);
       match.current = new PadelMatch({
@@ -211,6 +231,10 @@ export default function PadelGame() {
         difficulty: 'normal',
         gamesToWin: 3,
         setsToWin: 1,
+        playerProfiles: matchAppearances(
+          settingsRef.current.team,
+          settingsRef.current.opponent,
+        ),
       });
       audio.current = new PadelAudio();
       setReady(true);
@@ -264,7 +288,14 @@ export default function PadelGame() {
       renderer.current!.render(s, dt);
       if (active && s.eventId !== lastEvent) {
         if (screenRef.current === 'play')
-          audio.current?.play(s.eventType, s.ball.x, input.current.power);
+          audio.current?.play(
+            s.eventType,
+            s.ball.x,
+            Math.max(
+              0.12,
+              Math.min(1, Math.hypot(s.ball.vx, s.ball.vy, s.ball.vz) / 34),
+            ),
+          );
         lastEvent = s.eventId;
       }
       if (active && s.phase === 'point') {
@@ -279,6 +310,10 @@ export default function PadelGame() {
           autoPlay: true,
           gamesToWin: 3,
           setsToWin: 1,
+          playerProfiles: matchAppearances(
+            settingsRef.current.team,
+            settingsRef.current.opponent,
+          ),
         });
       if (screenRef.current === 'play' && s.phase === 'finished') {
         screenRef.current = 'result';
@@ -442,12 +477,15 @@ export default function PadelGame() {
     setRound(nextRound);
     if (nextRound === 0) setRoundResults([]);
     resultRecorded.current = false;
+    const profiles = matchAppearances(settings.team, opp);
+    renderer.current?.setPlayers(profiles);
     match.current = new PadelMatch({
       difficulty: settings.difficulty,
       gamesToWin: settings.format === 'rapido' ? 3 : 6,
       setsToWin: settings.format === 'partido' ? 2 : 1,
       training: chosenMode === 'entrenamiento',
       drill: chosenDrill,
+      playerProfiles: profiles,
     });
     const openingShot: Shot =
       chosenMode === 'entrenamiento' && chosenDrill === 'remate'
@@ -464,10 +502,13 @@ export default function PadelGame() {
   };
   startFromKeyboard.current = () => start(0, 'partido');
   const menu = () => {
+    const profiles = matchAppearances(settings.team, settings.opponent);
+    renderer.current?.setPlayers(profiles);
     match.current = new PadelMatch({
       autoPlay: true,
       gamesToWin: 3,
       setsToWin: 1,
+      playerProfiles: profiles,
     });
     changeScreen('menu');
   };
@@ -555,7 +596,7 @@ export default function PadelGame() {
             </a>
             <div className="edition">
               <span className="status-dot" />
-              EDICIÓN JUGABLE<span className="edition-sep">/</span>03
+              EDICIÓN JUGABLE<span className="edition-sep">/</span>04
             </div>
             <button
               className="icon-button"
@@ -636,6 +677,28 @@ export default function PadelGame() {
               <div className="team-meta">
                 <span>{playerTeam.countries}</span>
                 <span>{playerTeam.style}</span>
+              </div>
+              <div
+                className="player-traits"
+                aria-label="Jugadores de tu pareja"
+              >
+                {teamAppearances(settings.team).map((p) => (
+                  <span key={p.id}>
+                    <i
+                      style={{
+                        background: p.kit.shirt,
+                        borderColor: p.kit.accent,
+                      }}
+                    />
+                    <span>
+                      <b>{p.surname}</b>
+                      <small>
+                        {p.height.toFixed(2).replace('.', ',')} m ·{' '}
+                        {p.handedness === 'left' ? 'Zurdo' : 'Diestro'}
+                      </small>
+                    </span>
+                  </span>
+                ))}
               </div>
             </div>
             <button

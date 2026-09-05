@@ -1,13 +1,13 @@
 # Premier Padel
 
-Juego 3D de pádel en español. Tercera edición jugable, inspirada en Premier Padel.
+Juego 3D de pádel en español. Cuarta edición jugable, inspirada en Premier Padel.
 Implementación independiente con Three.js, React y Vinext/Vite. No modifica alandaitch.com.
 
 ## Jugar
 
 - Partido rápido y torneo reducido de tres rondas: el botón de modo inicia directamente.
 - Entrenamiento con cuatro ejercicios: peloteo, vidrio, doble pared y remate.
-- Ocho parejas seleccionables, basadas en la lista de Madrid P1 de 2026.
+- Ocho parejas seleccionables, contrastadas con Madrid P1 y perfiles FIP de 2026.
 - Madrid P1, Paris Major e Italy Major, con recreaciones distintas de ambiente y arquitectura.
 - Un set corto, un set completo o partido al mejor de tres sets.
 - Tres dificultades y tres cámaras.
@@ -39,10 +39,19 @@ El receptor puede alcanzar con la pala sin cruzar el cuerpo; el último equipo q
 Marcador de juegos/sets, tiebreak y Star Point 2026 con elección de lado de recepción. Pantalla final, revancha,
 siguiente ronda, título y vuelta al menú.
 
+Pelota con giro en tres ejes, resistencia del aire, Magnus y fricción en el contacto.
+El pique depende de velocidad, giro y superficie; se retiraron los impulsos artificiales por golpe.
+La caída de referencia desde 2,54 m cumple el rango FIP sobre superficie dura.
+Vidrio, césped y malla tienen parámetros aproximados documentados en `PHYSICS-V4.md`.
+
+Dieciséis perfiles con altura FIP, mano dominante y lado de cancha; Coello, Sanz y Arce zurdos.
+Pelo, barba, complexión, camisetas, nombres y palas diferenciados, conectados a cada selección.
+Modelos y rasgos aproximados a fotografías oficiales, no escaneos fotográficos.
+
 Cancha y palas con texturas locales, iluminación/sombras, jugadores articulados,
 público instanciado, rastro de pelota, indicador de jugador y pista libre de controles.
 Sonido Web Audio sintetizado: golpe, pique, vidrio, red, aplausos y ambiente.
-El audio se inicia mediante una interacción del usuario.
+La intensidad acompaña la velocidad real de la pelota. El audio se inicia mediante una interacción del usuario.
 
 ## Ejecutar y validar
 
@@ -56,12 +65,19 @@ npm test
 npm run build
 ```
 
+En V4 pasan las 37 pruebas, TypeScript, el build y el lint de los módulos `game/` modificados.
+El lint global conserva advertencias y errores previos en la UI base y en `app/padel-game.tsx`
+(reglas del compilador React y semántica accesible). No se considera una validación global limpia.
+
 ## Estructura
 
 - `game/physics.ts`: simulación independiente, IA, saque, golpes y ScoreKeeper.
 - `game/renderer.ts`: escena Three.js, materiales, rigs, animación y cámaras.
 - `game/audio.ts`: audio espacial sintetizado con Web Audio.
 - `game/catalog.ts`: parejas, sedes y catálogo de golpes.
+- `game/player-profiles.ts`: identidad visual, altura, lateralidad e indumentaria.
+- `PHYSICS-V4.md`, `RENDERER-V4.md`, `PLAYERS-V4.md`: fuentes y alcance de la revisión.
+- `PADEL-REVIEW-V4.md`: auditoría independiente de esta edición.
 - `app/padel-game.tsx`: ciclo fijo 120 Hz, entradas, UI, torneo y persistencia local.
 - `game/physics.test.ts`: pruebas de reglas, trayectorias, ejercicios, táctica y partido completo.
 - `PADEL-DYNAMICS.md`: investigación primaria FIP/LTA y criterios de aceptación.
@@ -76,7 +92,7 @@ npm run build
    IA sin estilos individuales, con errores determinísticos. No hay recuperación exterior,
    falta por contacto corporal ni por tocar físicamente la red.
 3. **Jugadores, público y materiales.** No hay likeness facial ni modelos escaneados.
-   Las parejas comparten atributos físicos. El público resulta repetitivo.
+   Hay rasgos, ropa, alturas y lateralidad propios; falta semejanza facial fina. El público resulta repetitivo.
    Los escenarios evocan las sedes; no reproducen sus estadios con exactitud.
 4. **Audio.** Efectos sintetizados; faltan grabaciones de pista, pasos, arbitraje y público variado.
 5. **Circuito.** Tres rondas predefinidas, sin clasificación mundial, carrera, calendarios,
@@ -93,7 +109,8 @@ No hay multiplayer online ni soporte específico de gamepad. No se afirma parida
 - Referencias TE4: https://www.managames.com/tennis/screenshot_en.html
 
 La salida por tres termina el punto porque esta edición no habilita juego exterior.
-El efecto, la fricción y la restitución son modelos aproximados; no se han calibrado con captura real.
+El efecto y los contactos son modelos aproximados. Se calibró la caída FIP y se comprobó energía pasiva;
+falta medición de trayectorias con cámaras y datos de cada césped/vidrio real.
 
 Los nombres identifican jugadores y torneos reales. Las geometrías, texturas y sonidos se crean localmente.
 No se reutilizan texturas, modelos ni audio de Tennis Elbow 4. Outfit y Barlow Condensed: Google Fonts.

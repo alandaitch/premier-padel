@@ -49,8 +49,8 @@ export const TEAMS = [
     color: '#ffaeb9',
   },
   {
-    name: 'Tello / Aguirre',
-    players: ['Juan Tello', 'Maxi Aguirre'],
+    name: 'Tello / Arce',
+    players: ['Juan Tello', 'Maxi Arce'],
     countries: 'ARG / ARG',
     style: 'Juego aéreo',
     color: '#b1bdff',

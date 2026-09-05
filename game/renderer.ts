@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import type { GameState } from './physics';
+import { matchAppearances, type PlayerAppearance } from './player-profiles';
 
 type CameraMode = 'tv' | 'cerca' | 'cenital';
 type Rig = {
   root: THREE.Group;
   body: THREE.Group;
+  chest: THREE.Group;
+  upper: THREE.Group;
   head: THREE.Group;
   leftArm: THREE.Group;
   rightArm: THREE.Group;
@@ -14,10 +17,24 @@ type Rig = {
   rightLeg: THREE.Group;
   leftKnee: THREE.Group;
   rightKnee: THREE.Group;
+  leftAnkle: THREE.Group;
+  rightAnkle: THREE.Group;
+  dominantArm: THREE.Group;
+  dominantElbow: THREE.Group;
   racket: THREE.Group;
   shadow: THREE.Mesh;
   ring: THREE.Mesh;
   gaitPhase: number;
+  profile: PlayerAppearance;
+  bodyScale: number;
+  hand: number;
+  backhand: boolean;
+  contactStamp: number;
+  leftPlant: THREE.Vector3;
+  rightPlant: THREE.Vector3;
+  leftPlanted: boolean;
+  rightPlanted: boolean;
+  feetReady: boolean;
 };
 
 type ContactRecord = {
@@ -48,6 +65,7 @@ type ImpactPulse = {
 
 const TAU = Math.PI * 2;
 const clamp = THREE.MathUtils.clamp;
+const BALL_RADIUS = 0.033;
 
 /** Tournament presentation. The physics engine remains the sole owner of play state. */
 export class PadelRenderer {
@@ -57,6 +75,8 @@ export class PadelRenderer {
   private court = new THREE.Group();
   private rigs: Rig[] = [];
   private ball: THREE.Mesh;
+  private ballViewPosition = new THREE.Vector3();
+  private viewportSize = new THREE.Vector2();
   private ballShadow: THREE.Mesh;
   private landing: THREE.Mesh;
   private trail: THREE.Line;
@@ -93,7 +113,11 @@ export class PadelRenderer {
 
   constructor(
     private container: HTMLElement,
-    options?: { quality?: 'alta' | 'media'; venue?: string },
+    options?: {
+      quality?: 'alta' | 'media';
+      venue?: string;
+      players?: PlayerAppearance[];
+    },
   ) {
     this.quality = options?.quality ?? 'alta';
     this.renderer = new THREE.WebGLRenderer({
@@ -136,9 +160,9 @@ export class PadelRenderer {
     );
     this.venueSign.position.set(0, 4.9, -15.4);
     this.scene.add(this.venueSign);
-    for (let i = 0; i < 4; i++) this.rigs.push(this.makePlayer(i));
+    this.setPlayers(options?.players ?? matchAppearances(0, 1));
     this.ball = new THREE.Mesh(
-      new THREE.SphereGeometry(0.078, 18, 14),
+      new THREE.SphereGeometry(BALL_RADIUS, 18, 14),
       new THREE.MeshStandardMaterial({
         color: 0xe1ff3d,
         emissive: 0xa9c91c,
@@ -147,9 +171,13 @@ export class PadelRenderer {
       }),
     );
     this.ball.castShadow = true;
+    // Size assistance uses the actual render camera, including the close pose viewer.
+    this.ball.onBeforeRender = (_renderer, _scene, camera) => {
+      this.updateBallScale(camera);
+    };
     // Two curved seams remain visible in close view.
     const seam = new THREE.Mesh(
-      new THREE.TorusGeometry(0.076, 0.004, 4, 28),
+      new THREE.TorusGeometry(0.032, 0.0011, 4, 28),
       new THREE.MeshBasicMaterial({ color: 0xf4ffd4 }),
     );
     seam.rotation.y = Math.PI / 2;
@@ -319,7 +347,8 @@ export class PadelRenderer {
     sun.shadow.camera.far = 55;
     sun.shadow.normalBias = 0.035;
     sun.shadow.bias = -0.0001;
-    sun.shadow.radius = 3;
+    sun.shadow.radius = 4;
+    sun.shadow.intensity = 0.62;
     this.scene.add(sun);
     const fill = (this.fillLight = new THREE.DirectionalLight(0xc4e0ff, 1.6));
     fill.position.set(8, 15, -13);
@@ -590,7 +619,7 @@ export class PadelRenderer {
         0.25,
         0.16,
         0.5,
-        this.material(x > 0 ? 0xcedf80 : 0x263e5a),
+        this.material(0x263e4b),
         this.scene,
         x - Math.sign(x) * 0.1,
         0.2,
@@ -770,6 +799,44 @@ export class PadelRenderer {
       this.material(0xffffff),
       750,
     );
+    const crowdClothLimbs = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(1, 0.9, 1, 8),
+      this.material(0xffffff),
+      4500,
+    );
+    const crowdSkinLimbs = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(1, 0.84, 1, 8),
+      this.material(0xffffff),
+      1500,
+    );
+    const limbPose = new THREE.Object3D();
+    let clothLimbCount = 0,
+      skinLimbCount = 0;
+    const addLimb = (
+      mesh: THREE.InstancedMesh,
+      index: number,
+      a: THREE.Vector3,
+      b: THREE.Vector3,
+      radius: number,
+      color: THREE.Color,
+      x: number,
+      y: number,
+      z: number,
+      rotation: number,
+    ) => {
+      const axis = new THREE.Vector3(0, 1, 0);
+      a.applyAxisAngle(axis, rotation).add(new THREE.Vector3(x, y, z));
+      b.applyAxisAngle(axis, rotation).add(new THREE.Vector3(x, y, z));
+      limbPose.position.copy(a).add(b).multiplyScalar(0.5);
+      limbPose.quaternion.setFromUnitVectors(
+        axis,
+        b.clone().sub(a).normalize(),
+      );
+      limbPose.scale.set(radius, a.distanceTo(b), radius);
+      limbPose.updateMatrix();
+      mesh.setMatrixAt(index, limbPose.matrix);
+      mesh.setColorAt(index, color);
+    };
     const dummy = new THREE.Object3D();
     const palette = [
       0x293846, 0x99aabb, 0xc7ccca, 0x284f71, 0x795c57, 0x576b5b, 0x192931,
@@ -798,7 +865,7 @@ export class PadelRenderer {
         seatIndex++;
         if (this.random() < 0.13 || spectator >= 750) continue;
         const variance = 0.86 + this.random() * 0.27;
-        dummy.position.set(x + (this.random() - 0.5) * 0.05, row.y + 0.66, z);
+        dummy.position.set(x + (this.random() - 0.5) * 0.05, row.y + 0.61, z);
         dummy.rotation.set(
           (this.random() - 0.5) * 0.14,
           row.rot + (this.random() - 0.5) * 0.3,
@@ -830,12 +897,79 @@ export class PadelRenderer {
           spectator,
           new THREE.Color(this.random() > 0.5 ? 0x192b3c : 0x3c4953),
         );
+        const shirtColor = new THREE.Color(),
+          skinColor = new THREE.Color();
+        crowdBody.getColorAt(spectator, shirtColor);
+        crowdHead.getColorAt(spectator, skinColor);
+        const trousers = new THREE.Color(
+          this.random() > 0.4 ? 0x1b2b3b : 0x48525d,
+        );
+        for (const sign of [-1, 1]) {
+          addLimb(
+            crowdClothLimbs,
+            clothLimbCount++,
+            new THREE.Vector3(sign * 0.17, 0.77, 0),
+            new THREE.Vector3(sign * 0.21, 0.48, 0.07),
+            0.049,
+            shirtColor,
+            x,
+            row.y,
+            z,
+            row.rot,
+          );
+          addLimb(
+            crowdSkinLimbs,
+            skinLimbCount++,
+            new THREE.Vector3(sign * 0.21, 0.48, 0.07),
+            new THREE.Vector3(sign * 0.15, 0.37, 0.27),
+            0.038,
+            skinColor,
+            x,
+            row.y,
+            z,
+            row.rot,
+          );
+          addLimb(
+            crowdClothLimbs,
+            clothLimbCount++,
+            new THREE.Vector3(sign * 0.095, 0.31, 0),
+            new THREE.Vector3(sign * 0.105, 0.3, 0.3),
+            0.067,
+            trousers,
+            x,
+            row.y,
+            z,
+            row.rot,
+          );
+          addLimb(
+            crowdClothLimbs,
+            clothLimbCount++,
+            new THREE.Vector3(sign * 0.105, 0.3, 0.3),
+            new THREE.Vector3(sign * 0.105, 0.015, 0.34),
+            0.052,
+            trousers,
+            x,
+            row.y,
+            z,
+            row.rot,
+          );
+        }
         spectator++;
       }
     }
     seats.count = backs.count = seatIndex;
     crowdBody.count = crowdHead.count = crowdLegs.count = spectator;
-    this.scene.add(seats, backs, crowdBody, crowdHead, crowdLegs);
+    crowdClothLimbs.count = clothLimbCount;
+    crowdSkinLimbs.count = skinLimbCount;
+    this.scene.add(
+      seats,
+      backs,
+      crowdBody,
+      crowdHead,
+      crowdLegs,
+      crowdClothLimbs,
+      crowdSkinLimbs,
+    );
     for (const x of [-8.05, 8.05]) {
       this.box(0.05, 0.05, 23, rails, x, 1.02, -1.5, this.scene);
       for (let z = -12; z < 11; z += 2)
@@ -980,64 +1114,190 @@ export class PadelRenderer {
     return shadow;
   }
 
-  private makePlayer(index: number): Rig {
-    const root = new THREE.Group();
-    const body = new THREE.Group();
-    root.add(body);
-    const team = index < 2 ? 0 : 1;
-    const skin = this.material(index % 2 === 0 ? 0xc59677 : 0xd9ae8e, 0.8);
-    const darkSkin = this.material(index % 2 === 0 ? 0x946c50 : 0xb27e5f, 0.88);
-    const shirtColor =
-      team === 0
-        ? index === 0
-          ? 0xdbe99c
-          : 0xc7d781
-        : index === 2
-          ? 0xeae8dc
-          : 0xcfdadb;
-    const clothTexture = this.textureCanvas(
-      128,
-      (ctx, size) => {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, size, size);
-        for (let y = 0; y < size; y += 3) {
-          ctx.strokeStyle = 'rgba(24,41,32,.055)';
+  private anatomicalSurface(
+    rings: Array<[number, number, number]>,
+    material: THREE.Material,
+    parent: THREE.Object3D,
+    wrinkles = false,
+  ) {
+    const vertices: number[] = [],
+      uv: number[] = [],
+      indices: number[] = [];
+    const segments = 32;
+    for (let row = 0; row < rings.length; row++) {
+      const [y, radiusX, radiusZ] = rings[row];
+      for (let col = 0; col <= segments; col++) {
+        const theta = (col / segments) * TAU;
+        const fold = wrinkles
+          ? 1 +
+            0.017 *
+              Math.sin(theta * 9 + y * 47) *
+              Math.sin((row / (rings.length - 1)) * Math.PI)
+          : 1;
+        vertices.push(
+          Math.sin(theta) * radiusX * fold,
+          y,
+          -Math.cos(theta) * radiusZ * fold,
+        );
+        uv.push(col / segments, row / (rings.length - 1));
+        if (row < rings.length - 1 && col < segments) {
+          const a = row * (segments + 1) + col,
+            b = a + segments + 1;
+          indices.push(a, b, a + 1, b, b + 1, a + 1);
+        }
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(vertices, 3),
+    );
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    parent.add(mesh);
+    return mesh;
+  }
+
+  private uniformTexture(profile: PlayerAppearance) {
+    return this.textureCanvas(512, (ctx, size) => {
+      const kit = profile.kit;
+      ctx.fillStyle = kit.shirt;
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = kit.accent;
+      if (kit.pattern === 'diagonal') {
+        for (const x of [-30, 250]) {
           ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(size, y);
-          ctx.stroke();
+          ctx.moveTo(x, 60);
+          ctx.lineTo(x + 75, 60);
+          ctx.lineTo(x + 230, 510);
+          ctx.lineTo(x + 140, 510);
+          ctx.fill();
         }
-        for (let i = 0; i < 450; i++) {
-          ctx.fillStyle = 'rgba(21,31,28,.08)';
-          ctx.fillRect(this.random() * size, this.random() * size, 1, 2);
-        }
-      },
-      [2, 2],
+      } else if (kit.pattern === 'shoulder') {
+        ctx.fillRect(0, 0, size, 85);
+        ctx.fillRect(98, 0, 42, size);
+        ctx.fillRect(374, 0, 42, size);
+      } else if (kit.pattern === 'blocks') {
+        ctx.fillRect(0, 0, size, 95);
+        ctx.fillRect(0, 385, size, 127);
+      }
+      // Woven grain, seam stitching and broad compression folds keep the shirt fabric-like.
+      for (let y = 0; y < size; y += 3) {
+        ctx.fillStyle = y % 2 ? 'rgba(0,0,0,.035)' : 'rgba(255,255,255,.055)';
+        ctx.fillRect(0, y, size, 1);
+      }
+      for (const x of [118, 388]) {
+        ctx.strokeStyle = 'rgba(15,22,26,.28)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x, 40);
+        ctx.quadraticCurveTo(x + 17, 250, x - 7, 500);
+        ctx.stroke();
+        ctx.setLineDash([2, 4]);
+        ctx.strokeStyle = 'rgba(255,255,255,.30)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      for (const y of [330, 392, 462]) {
+        const gradient = ctx.createLinearGradient(0, y - 10, 0, y + 12);
+        gradient.addColorStop(0, 'rgba(0,0,0,0)');
+        gradient.addColorStop(0.45, 'rgba(0,0,0,.14)');
+        gradient.addColorStop(0.57, 'rgba(255,255,255,.1)');
+        gradient.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, y - 10, size, 22);
+      }
+    });
+  }
+
+  private playerLabel(
+    text: string,
+    width: number,
+    height: number,
+    ink: string,
+  ) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, 512, 128);
+    ctx.fillStyle = ink;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '800 64px Arial';
+    ctx.fillText(text, 256, 68, 490);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    this.textures.push(texture);
+    return new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshStandardMaterial({
+        map: texture,
+        transparent: true,
+        roughness: 0.94,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+  }
+
+  private makePlayer(index: number, profile: PlayerAppearance): Rig {
+    const root = new THREE.Group(),
+      body = new THREE.Group(),
+      chest = new THREE.Group(),
+      upper = new THREE.Group();
+    root.name = profile.name;
+    root.userData.playerId = profile.id;
+    root.add(body);
+    body.add(chest);
+    chest.position.y = 0.17;
+    chest.add(upper);
+    upper.position.y = -0.17;
+    const bodyScale = profile.height / 1.95;
+    const girth =
+      profile.build === 'compact'
+        ? 1.055
+        : profile.build === 'tall'
+          ? 0.965
+          : 1;
+    root.scale.set(bodyScale * girth, bodyScale, bodyScale);
+    const hand = profile.handedness === 'left' ? -1 : 1;
+    const skin = this.material(profile.skin, 0.7);
+    const darkSkin = this.material(
+      new THREE.Color(profile.skin).multiplyScalar(0.76),
+      0.85,
     );
     const shirt = new THREE.MeshStandardMaterial({
-      color: shirtColor,
-      map: clothTexture,
-      roughness: 0.95,
+      map: this.uniformTexture(profile),
+      roughness: 0.96,
     });
-    const shorts = this.material(team === 0 ? 0x1b303e : 0x2e526f, 0.94);
-    const socks = this.material(0xe5e8e0, 0.96);
-    const shoes = this.material(team === 0 ? 0xecf3d9 : 0xdfecf1, 0.72);
-    const trim = this.material(team === 0 ? 0x29372e : 0x48656e);
-    const hair = this.material(index === 1 ? 0x3e2b20 : 0x211e1b, 0.93);
-    // Torso is a tapered, elliptic athletic silhouette with shoulder and clavicle volume.
-    const torso = this.cylinder(
-      0.238,
-      0.197,
-      0.55,
+    const shorts = this.material(profile.kit.shorts, 0.96);
+    const socks = this.material(0xe4e8e3, 0.98);
+    const shoes = this.material(0xe9eee7, 0.73);
+    const trim = this.material(profile.kit.accent, 0.79);
+    const hair = this.material(profile.hair, 0.95);
+    // Thorax, waist and shoulder bridge are one continuous surface, with actual cloth folds.
+    this.anatomicalSurface(
+      [
+        [0.145, 0.195, 0.126],
+        [0.2, 0.195, 0.129],
+        [0.28, 0.194, 0.137],
+        [0.38, 0.213, 0.149],
+        [0.49, 0.239, 0.158],
+        [0.59, 0.259, 0.159],
+        [0.65, 0.258, 0.145],
+        [0.695, 0.199, 0.116],
+        [0.725, 0.096, 0.079],
+      ],
       shirt,
-      body,
-      0,
-      0.42,
-      0,
-      20,
+      upper,
+      true,
     );
-    torso.scale.z = 0.65;
-    this.sphere(0.245, 0.11, 0.16, shirt, body, 0, 0.64, 0);
     const pelvis = this.cylinder(
       0.207,
       0.198,
@@ -1047,131 +1307,340 @@ export class PadelRenderer {
       0,
       0.065,
       0,
-      18,
+      24,
     );
     pelvis.scale.z = 0.8;
-    this.box(0.034, 0.48, 0.02, trim, -0.178, 0.42, -0.13, body);
-    this.box(0.034, 0.48, 0.02, trim, 0.178, 0.42, -0.13, body);
-    const sponsor = this.makeBanner(
-      'PREMIER',
-      0.24,
-      0.055,
-      team === 0 ? '#d4e594' : '#e1e7df',
-      '#1a2d34',
-      30,
+    const waist = this.cylinder(
+      0.204,
+      0.204,
+      0.028,
+      trim,
+      body,
+      0,
+      0.163,
+      0,
+      24,
     );
-    sponsor.position.set(0, 0.49, -0.159);
+    waist.scale.z = 0.65;
+    const sponsor = this.playerLabel(
+      profile.kit.sponsor,
+      0.33,
+      0.072,
+      profile.kit.ink,
+    );
+    sponsor.position.set(0, 0.48, -0.166);
     sponsor.rotation.y = Math.PI;
-    body.add(sponsor);
-    const backNumber = this.makeBanner(
-      `${index + 1}`,
-      0.15,
-      0.16,
-      team === 0 ? '#d4e594' : '#e1e7df',
-      '#1a2d34',
-      55,
+    upper.add(sponsor);
+    const brand = this.playerLabel(
+      profile.kit.brand,
+      0.11,
+      0.033,
+      profile.kit.ink,
     );
-    backNumber.position.set(0, 0.42, 0.145);
-    body.add(backNumber);
-    this.cylinder(0.07, 0.082, 0.12, skin, body, 0, 0.77, 0);
-    // Collar and shoulder fabric remain separate from neck and bare arm volumes.
+    brand.position.set(0.122, 0.62, -0.139);
+    brand.rotation.y = Math.PI;
+    upper.add(brand);
+    const surname = this.playerLabel(
+      profile.surname.toUpperCase(),
+      0.31,
+      0.058,
+      profile.kit.ink,
+    );
+    surname.position.set(0, 0.54, 0.169);
+    upper.add(surname);
+    const backBrand = this.playerLabel(
+      profile.id === 'galan' ? profile.kit.sponsor : profile.kit.brand,
+      0.21,
+      0.057,
+      profile.kit.ink,
+    );
+    backBrand.position.set(0, 0.34, 0.15);
+    upper.add(backBrand);
+    this.cylinder(0.065, 0.083, 0.13, skin, upper, 0, 0.77, 0, 20);
     const collar = new THREE.Mesh(
-      new THREE.TorusGeometry(0.085, 0.018, 6, 20),
+      new THREE.TorusGeometry(0.085, 0.012, 7, 28),
       trim,
     );
     collar.rotation.x = Math.PI / 2;
-    collar.position.set(0, 0.704, -0.018);
-    body.add(collar);
+    collar.position.set(0, 0.719, -0.009);
+    upper.add(collar);
     const head = new THREE.Group();
     head.position.set(0, 0.885, -0.012);
-    body.add(head);
-    this.sphere(0.115, 0.149, 0.113, skin, head, 0, 0.016, 0);
-    this.sphere(0.1, 0.075, 0.099, skin, head, 0, -0.063, -0.019);
-    this.sphere(0.031, 0.035, 0.048, skin, head, 0, -0.008, -0.115);
-    this.sphere(0.017, 0.033, 0.023, darkSkin, head, -0.117, 0.002, 0.002);
-    this.sphere(0.017, 0.033, 0.023, darkSkin, head, 0.117, 0.002, 0.002);
-    const hairCap = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 18, 12, 0, TAU, 0, Math.PI * 0.52),
-      hair,
+    upper.add(head);
+    const angular =
+      profile.id.includes('galan') || profile.id.includes('lebron');
+    const jaw = angular ? 1.06 : profile.build === 'compact' ? 0.95 : 1;
+    this.anatomicalSurface(
+      [
+        [-0.127, 0.039, 0.047],
+        [-0.097, 0.073 * jaw, 0.078],
+        [-0.052, 0.098 * jaw, 0.096],
+        [0.012, 0.112, 0.109],
+        [0.065, 0.114, 0.11],
+        [0.114, 0.099, 0.098],
+        [0.159, 0.039, 0.043],
+        [0.17, 0.003, 0.004],
+      ],
+      skin,
+      head,
     );
-    hairCap.scale.set(0.122, 0.15, 0.119);
-    hairCap.position.set(0, 0.028, 0.005);
-    head.add(hairCap);
-    this.box(0.039, 0.01, 0.007, hair, -0.044, 0.042, -0.102, head);
-    this.box(0.039, 0.01, 0.007, hair, 0.044, 0.042, -0.102, head);
-    const eyeMat = this.material(0x252522);
-    this.sphere(0.008, 0.009, 0.004, eyeMat, head, -0.043, 0.025, -0.111);
-    this.sphere(0.008, 0.009, 0.004, eyeMat, head, 0.043, 0.025, -0.111);
-    if (index % 2 === 0) {
-      const band = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.121, 0.122, 0.03, 20, 1, true),
-        this.material(team === 0 ? 0x22382a : 0x315879),
+    this.sphere(
+      0.023,
+      0.031,
+      angular ? 0.046 : 0.04,
+      skin,
+      head,
+      0,
+      -0.008,
+      -0.11,
+    );
+    this.sphere(0.016, 0.032, 0.022, skin, head, -0.115, 0.003, 0.002);
+    this.sphere(0.016, 0.032, 0.022, skin, head, 0.115, 0.003, 0.002);
+    this.sphere(0.014, 0.027, 0.008, darkSkin, head, -0.119, 0.004, -0.01);
+    this.sphere(0.014, 0.027, 0.008, darkSkin, head, 0.119, 0.004, -0.01);
+    const eyeWhite = this.material(0xe0ddd3, 0.85),
+      iris = this.material(0x322c24, 0.6);
+    for (const side of [-1, 1]) {
+      this.sphere(
+        0.022,
+        0.01,
+        0.008,
+        eyeWhite,
+        head,
+        side * 0.043,
+        0.032,
+        -0.106,
       );
-      band.position.y = 0.07;
-      head.add(band);
-    } else {
-      const beard = this.sphere(
-        0.096,
-        0.062,
-        0.078,
+      this.sphere(0.008, 0.008, 0.004, iris, head, side * 0.043, 0.031, -0.113);
+      const brow = this.box(
+        0.042,
+        0.009,
+        0.012,
+        hair,
+        side * 0.043,
+        0.053,
+        -0.107,
+        head,
+      );
+      brow.rotation.z = side * (angular ? 0.12 : 0.04);
+    }
+    const mouth = this.box(
+      0.042,
+      0.005,
+      0.007,
+      darkSkin,
+      0,
+      -0.07,
+      -0.096,
+      head,
+    );
+    mouth.rotation.x = 0.12;
+    const crownHeight = profile.hairStyle === 'crop' ? 0.184 : 0.201;
+    this.anatomicalSurface(
+      [
+        [0.045, 0.113, 0.086],
+        [0.08, 0.12, 0.111],
+        [0.124, 0.108, 0.105],
+        [crownHeight - 0.019, 0.063, 0.061],
+        [crownHeight, 0.003, 0.004],
+      ],
+      hair,
+      head,
+    );
+    if (profile.hairStyle === 'curly') {
+      const curls = new THREE.InstancedMesh(
+        new THREE.SphereGeometry(0.025, 8, 6),
+        hair,
+        32,
+      );
+      const pose = new THREE.Object3D();
+      for (let i = 0; i < 32; i++) {
+        const angle = i * 2.39996,
+          radius = 0.1 * Math.sqrt(i / 32);
+        pose.position.set(
+          Math.cos(angle) * radius,
+          0.149 + Math.sqrt(Math.max(0, 0.01 - radius * radius)) * 0.48,
+          Math.sin(angle) * radius,
+        );
+        pose.scale.set(1, 1.08, 1);
+        pose.updateMatrix();
+        curls.setMatrixAt(i, pose.matrix);
+      }
+      head.add(curls);
+    } else if (profile.hairStyle === 'swept') {
+      const sweep = this.sphere(
+        0.105,
+        0.052,
+        0.085,
         hair,
         head,
-        0,
-        -0.069,
-        -0.04,
+        -0.014,
+        0.154,
+        -0.023,
       );
-      beard.scale.z *= 0.93;
-      this.sphere(0.078, 0.047, 0.071, skin, head, 0, -0.041, -0.067);
+      sweep.rotation.z = -0.16;
+      for (let i = 0; i < 4; i++) {
+        const lock = this.sphere(
+          0.015,
+          0.036,
+          0.057,
+          hair,
+          head,
+          -0.06 + i * 0.03,
+          0.158,
+          -0.046,
+        );
+        lock.rotation.z = -0.22;
+      }
+    }
+    if (profile.beard !== 'none') {
+      const beardMap = this.textureCanvas(128, (ctx, size) => {
+        ctx.fillStyle = profile.skin;
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = profile.hair;
+        ctx.globalAlpha = profile.beard === 'full' ? 0.52 : 0.3;
+        for (let j = 0; j < 5200; j++)
+          ctx.fillRect(this.random() * size, this.random() * size, 0.7, 1.2);
+      });
+      const beardMaterial = new THREE.MeshStandardMaterial({
+        map: beardMap,
+        roughness: 0.98,
+      });
+      const beardMesh = this.anatomicalSurface(
+        [
+          [-0.127, 0.04, 0.048],
+          [-0.105, 0.076 * jaw, 0.08],
+          [-0.076, 0.094 * jaw, 0.097],
+          [-0.053, 0.101, 0.102],
+        ],
+        beardMaterial,
+        head,
+      );
+      const original = beardMesh.geometry.index!,
+        positions = beardMesh.geometry.attributes.position,
+        kept: number[] = [];
+      for (let j = 0; j < original.count; j += 3) {
+        const a = original.getX(j),
+          b = original.getX(j + 1),
+          c = original.getX(j + 2);
+        if (
+          (positions.getZ(a) + positions.getZ(b) + positions.getZ(c)) / 3 <
+          0.022
+        )
+          kept.push(a, b, c);
+      }
+      beardMesh.geometry.setIndex(kept);
+      this.sphere(0.047, 0.008, 0.006, beardMaterial, head, 0, -0.049, -0.106);
+    }
+    if (profile.headband) {
+      const band = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.119, 0.121, 0.027, 28, 1, true),
+        this.material(profile.headband),
+      );
+      band.position.y = 0.072;
+      head.add(band);
     }
     const arm = (side: -1 | 1) => {
       const shoulder = new THREE.Group();
-      shoulder.position.set(side * 0.248, 0.635, 0);
-      body.add(shoulder);
-      this.sphere(0.09, 0.104, 0.096, shirt, shoulder, side * 0.006, -0.025, 0);
-      this.cylinder(0.09, 0.076, 0.14, shirt, shoulder, 0, -0.071, 0);
-      this.cylinder(0.07, 0.054, 0.22, skin, shoulder, 0, -0.212, 0);
+      shoulder.position.set(side * 0.256, 0.639, 0);
+      upper.add(shoulder);
+      this.sphere(0.088, 0.09, 0.091, shirt, shoulder, side * 0.003, -0.026, 0);
+      const sleeve = this.cylinder(
+        0.089,
+        0.078,
+        0.14,
+        shirt,
+        shoulder,
+        0,
+        -0.07,
+        0,
+        20,
+      );
+      sleeve.scale.z = 0.97;
+      this.cylinder(0.077, 0.057, 0.225, skin, shoulder, 0, -0.208, 0, 18);
+      this.sphere(0.063, 0.105, 0.061, skin, shoulder, 0, -0.197, -0.004);
       const elbow = new THREE.Group();
-      elbow.position.set(0, -0.32, 0);
+      elbow.position.y = -0.32;
       shoulder.add(elbow);
-      this.sphere(0.055, 0.058, 0.055, skin, elbow);
-      this.cylinder(0.054, 0.038, 0.255, skin, elbow, 0, -0.132, 0);
-      this.cylinder(0.045, 0.044, 0.06, socks, elbow, 0, -0.224, 0);
-      this.sphere(0.044, 0.068, 0.036, skin, elbow, 0, -0.289, -0.006);
+      this.sphere(0.057, 0.058, 0.054, skin, elbow);
+      this.cylinder(0.058, 0.038, 0.255, skin, elbow, 0, -0.132, 0, 18);
+      this.sphere(0.052, 0.092, 0.048, skin, elbow, 0, -0.098, 0.002);
+      this.cylinder(0.044, 0.042, 0.055, socks, elbow, 0, -0.229, 0, 18);
+      this.sphere(0.042, 0.064, 0.034, skin, elbow, 0, -0.288, -0.01);
+      this.sphere(
+        0.025,
+        0.038,
+        0.025,
+        skin,
+        elbow,
+        side * -0.035,
+        -0.274,
+        -0.019,
+      );
       return [shoulder, elbow] as const;
     };
     const leg = (side: -1 | 1) => {
       const hip = new THREE.Group();
-      hip.position.set(side * 0.115, 0.01, 0);
+      hip.position.set(side * 0.12, 0.012, 0);
       body.add(hip);
-      const short = this.cylinder(0.122, 0.116, 0.255, shorts, hip, 0, -0.1, 0);
-      short.scale.z = 0.9;
-      this.cylinder(0.098, 0.069, 0.26, skin, hip, 0, -0.3, 0);
+      const short = this.cylinder(
+        0.119,
+        0.113,
+        0.255,
+        shorts,
+        hip,
+        0,
+        -0.1,
+        0,
+        20,
+      );
+      short.scale.z = 0.94;
+      this.box(0.025, 0.2, 0.009, trim, side * 0.098, -0.12, -0.06, hip);
+      this.cylinder(0.103, 0.073, 0.265, skin, hip, 0, -0.298, 0, 20);
+      this.sphere(0.096, 0.12, 0.088, skin, hip, 0, -0.278, 0.005);
       const knee = new THREE.Group();
-      knee.position.set(0, -0.43, 0);
+      knee.position.y = -0.43;
       hip.add(knee);
-      this.sphere(0.073, 0.074, 0.072, skin, knee, 0, 0, -0.007);
-      this.cylinder(0.069, 0.047, 0.28, skin, knee, 0, -0.137, 0.007);
-      this.cylinder(0.054, 0.049, 0.17, socks, knee, 0, -0.296, 0.007);
-      this.sphere(0.076, 0.07, 0.146, shoes, knee, 0, -0.405, -0.044);
-      this.box(0.146, 0.027, 0.245, trim, 0, -0.442, -0.043, knee);
-      this.box(0.085, 0.012, 0.067, socks, 0, -0.367, -0.08, knee);
-      return [hip, knee] as const;
+      this.sphere(0.075, 0.076, 0.072, skin, knee, 0, 0, -0.01);
+      this.cylinder(0.073, 0.047, 0.29, skin, knee, 0, -0.141, 0.008, 20);
+      this.sphere(0.073, 0.111, 0.068, skin, knee, 0, -0.115, 0.026);
+      this.cylinder(0.054, 0.05, 0.165, socks, knee, 0, -0.301, 0.005, 20);
+      const ankle = new THREE.Group();
+      ankle.position.set(0, -0.379, 0.003);
+      knee.add(ankle);
+      this.sphere(0.073, 0.064, 0.14, shoes, ankle, 0, -0.025, -0.046);
+      this.box(0.141, 0.023, 0.242, trim, 0, -0.064, -0.045, ankle);
+      this.box(0.09, 0.012, 0.085, socks, 0, 0.018, -0.088, ankle);
+      for (let j = 0; j < 3; j++)
+        this.box(
+          0.06,
+          0.006,
+          0.008,
+          this.material(0xaab4b1),
+          0,
+          0.026,
+          -0.068 - j * 0.02,
+          ankle,
+        );
+      return [hip, knee, ankle] as const;
     };
     const [leftArm, leftElbow] = arm(-1),
       [rightArm, rightElbow] = arm(1);
-    const [leftLeg, leftKnee] = leg(-1),
-      [rightLeg, rightKnee] = leg(1);
-    const racket = this.makeRacket(team);
+    const [leftLeg, leftKnee, leftAnkle] = leg(-1),
+      [rightLeg, rightKnee, rightAnkle] = leg(1);
+    const racket = this.makeRacket(profile);
+    racket.scale.setScalar(1 / bodyScale);
     racket.position.set(0, -0.305, 0);
-    racket.rotation.z = -0.12;
-    rightElbow.add(racket);
-    const shadow = this.makeContactShadow(0.66, 0.64);
+    const dominantArm = hand === 1 ? rightArm : leftArm,
+      dominantElbow = hand === 1 ? rightElbow : leftElbow;
+    dominantElbow.add(racket);
+    const shadow = this.makeContactShadow(0.58, 0.66);
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.38, 0.42, 56),
+      new THREE.RingGeometry(0.36, 0.397, 56),
       new THREE.MeshBasicMaterial({
         color: 0xd7fa88,
         transparent: true,
-        opacity: 0.92,
+        opacity: 0.85,
         side: THREE.DoubleSide,
         depthWrite: false,
       }),
@@ -1179,10 +1648,12 @@ export class PadelRenderer {
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.036;
     this.scene.add(root, shadow, ring);
-    body.position.y = 0.9;
+    body.position.y = 0.84;
     return {
       root,
       body,
+      chest,
+      upper,
       head,
       leftArm,
       rightArm,
@@ -1192,83 +1663,167 @@ export class PadelRenderer {
       rightLeg,
       leftKnee,
       rightKnee,
+      leftAnkle,
+      rightAnkle,
+      dominantArm,
+      dominantElbow,
       racket,
       shadow,
       ring,
       gaitPhase: index * 1.7,
+      profile,
+      bodyScale,
+      hand,
+      backhand: false,
+      contactStamp: -1,
+      leftPlant: new THREE.Vector3(),
+      rightPlant: new THREE.Vector3(),
+      leftPlanted: false,
+      rightPlanted: false,
+      feetReady: false,
     };
   }
 
-  private makeRacket(team: number) {
-    const group = new THREE.Group();
-    const graphite = this.material(0x152330, 0.35, 0.2);
-    const faceMaterial = this.material(
-      team === 0 ? 0xbed777 : 0x5f99c1,
-      0.55,
-      0.13,
+  private makeRacket(profile: PlayerAppearance) {
+    const group = new THREE.Group(),
+      shape = new THREE.Shape();
+    const round = profile.racket.shape === 'round',
+      diamond = profile.racket.shape === 'diamond';
+    shape.moveTo(0, 0.112);
+    shape.bezierCurveTo(
+      -0.056,
+      0.118,
+      -0.13,
+      round ? 0.21 : 0.245,
+      -0.126,
+      0.295,
     );
-    // Real padel pala: solid face with drilled holes, throat and short wrapped grip.
-    const outline = new THREE.Shape();
-    outline.moveTo(0, 0.13);
-    outline.bezierCurveTo(-0.08, 0.14, -0.19, 0.25, -0.185, 0.37);
-    outline.bezierCurveTo(-0.18, 0.6, 0.18, 0.6, 0.185, 0.37);
-    outline.bezierCurveTo(0.19, 0.25, 0.08, 0.14, 0, 0.13);
-    for (let row = 0; row < 5; row++) {
+    shape.bezierCurveTo(
+      diamond ? -0.133 : -0.121,
+      0.407,
+      diamond ? -0.052 : 0,
+      0.422,
+      0,
+      0.421,
+    );
+    shape.bezierCurveTo(
+      diamond ? 0.052 : 0.121,
+      0.422,
+      diamond ? 0.133 : 0.126,
+      0.407,
+      0.126,
+      0.295,
+    );
+    shape.bezierCurveTo(0.13, round ? 0.21 : 0.245, 0.056, 0.118, 0, 0.112);
+    for (let row = 0; row < 5; row++)
       for (let col = -2; col <= 2; col++) {
-        const hx = col * 0.055,
-          hy = 0.26 + row * 0.053;
         if ((row === 0 || row === 4) && Math.abs(col) === 2) continue;
         const hole = new THREE.Path();
-        hole.absarc(hx, hy, 0.014, 0, TAU, false);
-        outline.holes.push(hole);
+        hole.absarc(col * 0.04, 0.2 + row * 0.04, 0.009, 0, TAU, false);
+        shape.holes.push(hole);
       }
-    }
-    const frame = new THREE.Mesh(
-      new THREE.ExtrudeGeometry(outline, {
-        depth: 0.028,
+    const carbon = this.textureCanvas(128, (ctx, size) => {
+      ctx.fillStyle = profile.racket.color;
+      ctx.fillRect(0, 0, size, size);
+      for (let y = 0; y < size; y += 5)
+        for (let x = 0; x < size; x += 5) {
+          ctx.fillStyle =
+            ((x + y) / 5) % 2 ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.1)';
+          ctx.fillRect(x, y, 3, 4);
+        }
+    });
+    const face = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: carbon,
+      roughness: 0.47,
+      metalness: 0.12,
+    });
+    const rim = this.material(profile.racket.accent, 0.4, 0.18);
+    const racket = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(shape, {
+        depth: 0.032,
         bevelEnabled: true,
-        bevelSegments: 1,
+        bevelSegments: 2,
         steps: 1,
-        bevelSize: 0.011,
-        bevelThickness: 0.007,
-        curveSegments: 10,
+        bevelSize: 0.004,
+        bevelThickness: 0.003,
+        curveSegments: 18,
       }),
-      [faceMaterial, graphite],
+      [face, rim],
     );
-    frame.castShadow = true;
-    group.add(frame);
-    const grip = this.cylinder(
-      0.025,
-      0.025,
-      0.17,
-      graphite,
-      group,
-      0,
-      0.075,
-      0.011,
+    racket.castShadow = true;
+    group.add(racket);
+    const gripMaterial = this.material(0xd8dfd8, 0.93);
+    this.cylinder(0.018, 0.02, 0.112, gripMaterial, group, 0, 0.053, 0.014, 16);
+    const gripLine = this.material(0xa2afa7, 0.92);
+    for (let y = 0.008; y < 0.109; y += 0.014)
+      this.cylinder(0.0205, 0.0205, 0.0025, gripLine, group, 0, y, 0.014, 12);
+    const logo = this.playerLabel(
+      profile.racket.brand,
+      0.14,
+      0.039,
+      profile.racket.accent,
     );
-    for (let y = 0.016; y < 0.15; y += 0.021)
-      this.cylinder(
-        0.027,
-        0.027,
-        0.004,
-        this.material(0x8d9d93),
-        group,
-        0,
-        y,
-        0.011,
-        8,
-      );
-    grip.rotation.z = 0;
-    const cord = new THREE.Mesh(
-      new THREE.TorusGeometry(0.047, 0.004, 4, 14, Math.PI * 1.65),
-      graphite,
+    logo.position.set(0, 0.298, -0.005);
+    logo.rotation.y = Math.PI;
+    group.add(logo);
+    const logoBack = logo.clone();
+    logoBack.position.z = 0.039;
+    logoBack.rotation.y = 0;
+    group.add(logoBack);
+    const throat = new THREE.Path();
+    throat.moveTo(-0.025, 0.12);
+    throat.lineTo(0, 0.159);
+    throat.lineTo(0.025, 0.12);
+    throat.closePath();
+    const strap = new THREE.Mesh(
+      new THREE.TorusGeometry(0.03, 0.003, 5, 18, Math.PI * 1.8),
+      this.material(0x253b3e),
     );
-    cord.scale.x = 0.6;
-    cord.position.set(0.025, -0.025, 0.011);
-    group.add(cord);
+    strap.scale.x = 0.65;
+    strap.position.set(0.016, -0.015, 0.012);
+    group.add(strap);
     group.rotation.x = Math.PI;
     return group;
+  }
+
+  setPlayers(profiles: PlayerAppearance[]) {
+    const defaults = matchAppearances(0, 1);
+    const next = Array.from(
+      { length: 4 },
+      (_, i) => profiles[i] ?? defaults[i],
+    );
+    if (
+      this.rigs.length === 4 &&
+      next.every((profile, i) => this.rigs[i].profile.id === profile.id)
+    )
+      return;
+    for (const rig of this.rigs) {
+      const geometries = new Set<THREE.BufferGeometry>(),
+        materials = new Set<THREE.Material>(),
+        textures = new Set<THREE.Texture>();
+      for (const object of [rig.root, rig.shadow, rig.ring]) {
+        object.traverse((child) => {
+          const mesh = child as THREE.Mesh;
+          if (mesh.geometry) geometries.add(mesh.geometry);
+          if (mesh.material)
+            (Array.isArray(mesh.material)
+              ? mesh.material
+              : [mesh.material]
+            ).forEach((material) => materials.add(material));
+        });
+        this.scene.remove(object);
+      }
+      for (const material of materials) {
+        for (const value of Object.values(material))
+          if (value instanceof THREE.Texture) textures.add(value);
+        material.dispose();
+      }
+      geometries.forEach((geometry) => geometry.dispose());
+      textures.forEach((texture) => texture.dispose());
+      this.textures = this.textures.filter((texture) => !textures.has(texture));
+    }
+    this.rigs = next.map((profile, index) => this.makePlayer(index, profile));
   }
 
   private makeStaff(
@@ -1471,6 +2026,7 @@ export class PadelRenderer {
       this.trailHistory.length = 0;
       this.lastBounceKey = '';
       for (const pulse of this.impactPulses) pulse.started = -10;
+      for (const rig of this.rigs) rig.feetReady = false;
     }
     this.lastSceneTime = time;
     this.lastPhase = state.phase;
@@ -1479,6 +2035,10 @@ export class PadelRenderer {
       const player = state.players[i];
       if (!player) continue;
       const rig = this.rigs[i];
+      const hitArm = rig.dominantArm,
+        hitElbow = rig.dominantElbow;
+      const offArm = rig.hand === 1 ? rig.leftArm : rig.rightArm;
+      const offElbow = rig.hand === 1 ? rig.leftElbow : rig.rightElbow;
       const action = player as typeof player & {
         preparation?: number;
         movementIntent?: string;
@@ -1488,6 +2048,16 @@ export class PadelRenderer {
       const age = contact?.playerId === player.id ? time - contact.time : 100;
       const hasContact = age >= 0 && age < 0.42;
       const contactShot = hasContact ? contact!.shot : shot;
+      if (hasContact && rig.contactStamp !== contact!.time) {
+        rig.contactStamp = contact!.time;
+        rig.backhand =
+          (contact!.x - player.x) * (player.team === 0 ? 1 : -1) * rig.hand <
+          -0.1;
+      } else if (!hasContact && player.preparation > 0.1) {
+        rig.backhand =
+          (state.ball.x - player.x) * (player.team === 0 ? 1 : -1) * rig.hand <
+          -0.16;
+      }
       const overhead = ['remate', 'bandeja', 'vibora', 'bajada'].includes(
         contactShot,
       );
@@ -1509,7 +2079,12 @@ export class PadelRenderer {
       );
       const incoming = player.team === state.incomingTeam;
       const preparation = clamp(
-        action.preparation ?? (incoming ? 1 - ballDistance / 4 : 0),
+        Math.max(
+          action.preparation ?? 0,
+          incoming && state.ball.vy < 1 && ballDistance < 2.8
+            ? 1 - ballDistance / 3.2
+            : 0,
+        ),
         0,
         1,
       );
@@ -1519,7 +2094,9 @@ export class PadelRenderer {
         : 0;
       const crouch = Math.max(
         lowContact,
-        defendingWall ? 0.065 : preparation * 0.045,
+        defendingWall
+          ? 0.09
+          : (state.phase === 'rally' ? 0.055 : 0.025) + preparation * 0.025,
       );
       const contactFade = hasContact
         ? 1 - THREE.MathUtils.smoothstep(age, 0.1, 0.42)
@@ -1555,8 +2132,11 @@ export class PadelRenderer {
       // High smash: load, jump at contact, land on bent knees, recover toward the pair.
       const jumpHeight =
         hasContact && overhead
-          ? clamp(contact!.y - (smash ? 2.3 : 2.43), smash ? 0.08 : 0, 0.58) *
-            Math.max(0, 1 - (age / 0.32) ** 2)
+          ? clamp(
+              contact!.y / rig.bodyScale - (smash ? 2.17 : 2.27),
+              smash ? 0.06 : 0,
+              0.66 / rig.bodyScale,
+            ) * Math.max(0, 1 - (age / 0.32) ** 2)
           : 0;
       const landingLoad =
         hasContact && smash
@@ -1574,6 +2154,23 @@ export class PadelRenderer {
           : highPreparation * -0.15,
         -step * 0.025,
       );
+      const coil = rig.hand * (rig.backhand ? -0.6 : 0.42);
+      rig.chest.rotation.set(
+        0,
+        hasContact
+          ? THREE.MathUtils.lerp(coil * 0.5, -coil * 0.9, follow) *
+              (1 - THREE.MathUtils.smoothstep(age, 0.29, 0.44))
+          : coil * preparation,
+        0,
+      );
+      rig.body.rotation.y = hasContact
+        ? rig.hand *
+          (rig.backhand ? -0.42 : 0.42) *
+          (1 - THREE.MathUtils.smoothstep(age, 0, 0.24))
+        : rig.hand *
+          (rig.backhand ? -0.5 : 0.55) *
+          preparation *
+          (highPreparation > 0 ? 1 : 0.6);
       const shortStep = defendingWall ? 0.68 : 1;
       rig.leftLeg.rotation.set(
         step * 0.6 * shortStep + 0.07 + crouch * 3.0,
@@ -1587,6 +2184,10 @@ export class PadelRenderer {
       );
       rig.leftKnee.rotation.x = -Math.max(0, -step) * 0.83 - 0.1 - crouch * 6.0;
       rig.rightKnee.rotation.x = -Math.max(0, step) * 0.83 - 0.1 - crouch * 6.0;
+      rig.leftAnkle.rotation.x =
+        -(rig.leftLeg.rotation.x + rig.leftKnee.rotation.x) * 0.73;
+      rig.rightAnkle.rotation.x =
+        -(rig.rightLeg.rotation.x + rig.rightKnee.rotation.x) * 0.73;
       if (hasContact && overhead) {
         rig.body.rotation.x += 0.1 * (1 - follow) - 0.19 * follow;
         rig.leftLeg.rotation.x += 0.16 * contactFade;
@@ -1595,53 +2196,59 @@ export class PadelRenderer {
         rig.rightKnee.rotation.x -= jumpHeight * 1.1 + landingLoad * 3;
       }
       // Both hands are forward in a compact ready stance; net play uses a shorter swing.
-      rig.leftArm.rotation.set(
-        0.28 - step * 0.27 + preparation * 0.22,
-        0,
-        -0.16,
-      );
-      rig.rightArm.rotation.set(
-        0.38 + step * 0.23 + preparation * 0.32,
-        -0.1,
-        0.2,
-      );
-      rig.leftElbow.rotation.set(0.55 + preparation * 0.25, 0, 0);
-      rig.rightElbow.rotation.set(0.6 + preparation * 0.15, 0, 0);
+      offArm.rotation.set(0.28 - step * 0.27 + preparation * 0.22, 0, -0.16);
+      hitArm.rotation.set(0.38 + step * 0.23 + preparation * 0.32, -0.1, 0.2);
+      offElbow.rotation.set(0.55 + preparation * 0.25, 0, 0);
+      hitElbow.rotation.set(0.6 + preparation * 0.15, 0, 0);
       rig.racket.rotation.set(Math.PI + 0.12, -0.1, -0.12);
       rig.head.rotation.x = clamp((state.ball.y - 1.8) * 0.055, -0.15, 0.3);
       if (highPreparation > 0.05 && !hasContact) {
-        rig.rightArm.rotation.x = 0.6 + highPreparation * 1.6;
-        rig.rightArm.rotation.z = 0.25 + highPreparation * 0.25;
-        rig.rightElbow.rotation.x = 0.8;
-        rig.leftArm.rotation.x = highPreparation * 1.5;
-        rig.leftArm.rotation.z = -0.28;
+        hitArm.rotation.x = 0.6 + highPreparation * 1.6;
+        hitArm.rotation.z = 0.25 + highPreparation * 0.25;
+        hitElbow.rotation.x = 0.8;
+        offArm.rotation.x = highPreparation * 1.5;
+        offArm.rotation.z = -0.28;
         rig.body.rotation.x += highPreparation * 0.1;
       }
       if (swing > 0.01 || hasContact) {
         const accent = Math.sin(follow * Math.PI);
         if (overhead) {
-          rig.rightArm.rotation.x = 2.6 - follow * 2.0;
-          rig.rightArm.rotation.z = contactShot === 'vibora' ? 0.72 : 0.32;
-          rig.rightElbow.rotation.x = 0.5 - accent * 0.4;
-          rig.leftArm.rotation.x = 1.45 * (1 - follow);
-          rig.leftArm.rotation.z = -0.4;
+          hitArm.rotation.x = 2.6 - follow * 2.0;
+          hitArm.rotation.z =
+            contactShot === 'vibora'
+              ? 0.87
+              : contactShot === 'bandeja'
+                ? 0.62
+                : 0.32;
+          hitElbow.rotation.x = 0.5 - accent * 0.4;
+          offArm.rotation.x = 1.45 * (1 - follow);
+          offArm.rotation.z = -0.4;
           rig.racket.rotation.x = Math.PI - 0.2;
+          if (contactShot === 'bandeja') {
+            hitArm.rotation.x = 1.95 - follow * 1.12;
+            hitArm.rotation.y = -0.35 + follow * 1.6;
+            hitElbow.rotation.x = 0.64;
+          } else if (contactShot === 'vibora') {
+            hitArm.rotation.x = 2.18 - follow * 1.12;
+            hitArm.rotation.y = -0.68 + follow * 1.8;
+            hitElbow.rotation.x = 0.9 * (1 - follow) + 0.2;
+          }
         } else if (contactShot === 'globo' || contactShot === 'contrapared') {
-          rig.rightArm.rotation.x = 0.1 + accent * 1.0;
-          rig.rightArm.rotation.z = 0.3;
-          rig.rightElbow.rotation.x = 0.15 + accent * 0.3;
+          hitArm.rotation.x = 0.1 + accent * 1.0;
+          hitArm.rotation.z = 0.3;
+          hitElbow.rotation.x = 0.15 + accent * 0.3;
         } else if (['dejada', 'chiquita', 'volea'].includes(contactShot)) {
-          rig.rightArm.rotation.x = 0.65 + accent * 0.28;
-          rig.rightArm.rotation.z = 0.22;
-          rig.rightElbow.rotation.x = 0.35;
-          rig.leftArm.rotation.x = 0.65;
+          hitArm.rotation.x = 0.65 + accent * 0.28;
+          hitArm.rotation.z = 0.22;
+          hitElbow.rotation.x = 0.35;
+          offArm.rotation.x = 0.65;
           rig.body.rotation.x -= contactShot === 'chiquita' ? 0.12 : 0.04;
         } else {
-          rig.rightArm.rotation.x = 0.4 + accent * 0.65;
-          rig.rightArm.rotation.y = -0.75 + follow * 1.1;
-          rig.rightArm.rotation.z = 0.42;
-          rig.rightElbow.rotation.x = 0.36;
-          rig.leftArm.rotation.z = -0.4;
+          hitArm.rotation.x = 0.4 + accent * 0.65;
+          hitArm.rotation.y = -0.75 + follow * 1.1;
+          hitArm.rotation.z = 0.42;
+          hitElbow.rotation.x = 0.36;
+          offArm.rotation.z = -0.4;
         }
       }
       const serving =
@@ -1651,13 +2258,21 @@ export class PadelRenderer {
         const progress =
           state.phase === 'serve' ? state.serviceMotion : 1 + (1 - swing) * 0.5;
         rig.body.rotation.x = -0.08;
-        rig.leftArm.rotation.x = progress < 0.55 ? 0.68 : 0.22;
-        rig.leftElbow.rotation.x = 0.23;
-        rig.rightArm.rotation.x = -0.38 + clamp((progress - 0.55) / 0.7, 0, 1);
-        rig.rightArm.rotation.y = -0.12;
-        rig.rightArm.rotation.z = 0.25;
-        rig.rightElbow.rotation.x = 0.1;
+        offArm.rotation.x = progress < 0.55 ? 0.68 : 0.22;
+        offElbow.rotation.x = 0.23;
+        hitArm.rotation.x = -0.38 + clamp((progress - 0.55) / 0.7, 0, 1);
+        hitArm.rotation.y = -0.12;
+        hitArm.rotation.z = 0.25;
+        hitElbow.rotation.x = 0.1;
         rig.racket.rotation.set(Math.PI + 0.2, 0, -0.2);
+      }
+      hitArm.rotation.z *= rig.hand;
+      hitArm.rotation.y *= rig.hand;
+      offArm.rotation.z *= rig.hand;
+      if (rig.backhand && !overhead && !serving) {
+        hitArm.rotation.y = rig.hand * (0.8 - follow * 1.1);
+        offArm.rotation.x = 0.78;
+        offElbow.rotation.x = 0.85;
       }
       // The procedural stroke is only the preparation/recovery pose. At impact the
       // articulated arm is solved toward the physics contact, never the reverse.
@@ -1673,8 +2288,36 @@ export class PadelRenderer {
         );
         this.armTarget.y +=
           travel * (overhead ? -0.38 : contactShot === 'globo' ? 0.2 : 0.025);
-        const ikWeight = 1 - THREE.MathUtils.smoothstep(age, 0.13, 0.42);
-        this.anchorRacket(rig, this.armTarget, ikWeight);
+        if (
+          ['bandeja', 'vibora', 'remate'].includes(contactShot) ||
+          rig.backhand
+        ) {
+          const across =
+            contactShot === 'remate'
+              ? -0.2
+              : rig.backhand && !overhead
+                ? 0.36
+                : -0.42;
+          const endingHeight =
+            contactShot === 'remate'
+              ? 0.73
+              : contactShot === 'bandeja'
+                ? 1.37
+                : 1.28;
+          rig.root.updateMatrixWorld(true);
+          const finish = rig.root.localToWorld(
+            new THREE.Vector3(rig.hand * across, endingHeight, -0.3),
+          );
+          this.armTarget.lerp(
+            finish,
+            THREE.MathUtils.smoothstep(age, 0.025, 0.31),
+          );
+        }
+        const ikWeight = 1 - THREE.MathUtils.smoothstep(age, 0.32, 0.44);
+        this.anchorRacket(rig, this.armTarget, ikWeight, outgoing);
+      } else if (highPreparation > 0.12 && !serving) {
+        // Preserve the loaded overhead pose even when the lob is still above reach.
+        // The neutral-ready IK must not pull this racket back down to the waist.
       } else if (
         preparation > 0.15 &&
         !serving &&
@@ -1687,7 +2330,20 @@ export class PadelRenderer {
           state.ball.z,
         );
         this.anchorRacket(rig, this.armTarget, preparation * 0.65);
+      } else if (!serving && swing < 0.01) {
+        rig.root.updateMatrixWorld(true);
+        this.armTarget.set(
+          rig.hand * 0.045,
+          state.phase === 'rally' ? 1.3 : 1.18,
+          -0.4,
+        );
+        rig.root.localToWorld(this.armTarget);
+        this.anchorRacket(rig, this.armTarget, 0.96);
+        offArm.rotation.x = 0.83;
+        offArm.rotation.z = -rig.hand * 0.12;
+        offElbow.rotation.x = 1.15;
       }
+      this.stabilizeFeet(rig, player.vx, player.vz, jumpHeight);
       this.lookDirection.set(
         state.ball.x - player.x,
         0,
@@ -1707,10 +2363,15 @@ export class PadelRenderer {
         0.7 + Math.sin(time * 3) * 0.1;
     }
     const ball = state.ball;
-    this.ball.position.set(ball.x, Math.max(0.075, ball.y), ball.z);
-    this.ball.rotation.x += dt * (ball.vz || 0) * 2;
-    this.ball.rotation.z -= dt * (ball.vx || 0) * 2;
-    this.ball.scale.setScalar(this.cameraMode === 'cenital' ? 1.24 : 1.08);
+    this.ball.position.set(ball.x, Math.max(BALL_RADIUS, ball.y), ball.z);
+    const angular = ball as typeof ball & {
+      wx?: number;
+      wy?: number;
+      wz?: number;
+    };
+    this.ball.rotation.x += dt * (angular.wx ?? (ball.vz || 0) * 2);
+    this.ball.rotation.y += dt * (angular.wy ?? 0);
+    this.ball.rotation.z += dt * (angular.wz ?? -(ball.vx || 0) * 2);
     this.ballShadow.position.set(ball.x, 0.036, ball.z);
     const shadowSize = 1 + Math.min(ball.y, 12) * 0.1;
     this.ballShadow.scale.setScalar(shadowSize);
@@ -1752,60 +2413,228 @@ export class PadelRenderer {
     this.renderer.render(this.scene, this.camera);
   }
 
-  private anchorRacket(rig: Rig, worldTarget: THREE.Vector3, weight: number) {
+  private updateBallScale(camera: THREE.Camera) {
+    const depth = -this.ballViewPosition
+      .copy(this.ball.position)
+      .applyMatrix4(camera.matrixWorldInverse).z;
+    const viewportHeight = this.renderer.getSize(this.viewportSize).y;
+    const projectedDiameter =
+      (BALL_RADIUS * viewportHeight * camera.projectionMatrix.elements[5]) /
+      Math.max(0.1, depth);
+    const scale =
+      this.cameraMode === 'cerca'
+        ? 1
+        : clamp(2.8 / Math.max(projectedDiameter, 0.01), 1, 1.8);
+    this.ball.scale.setScalar(scale);
+    // onBeforeRender runs after the scene matrix pass; refresh this mesh and its seam.
+    this.ball.updateMatrixWorld(true);
+  }
+
+  private anchorRacket(
+    rig: Rig,
+    worldTarget: THREE.Vector3,
+    weight: number,
+    faceToward?: THREE.Vector3,
+  ) {
     if (weight <= 0) return;
     rig.root.updateMatrixWorld(true);
-    const target = rig.body.worldToLocal(worldTarget.clone());
-    const shoulder = rig.rightArm.position;
+    const target = rig.upper.worldToLocal(worldTarget.clone());
+    const shoulder = rig.dominantArm.position;
     const line = target.clone().sub(shoulder);
-    const upperLength = 0.32,
-      lowerAndRacket = 0.305 + 0.38;
-    const distance = clamp(
-      line.length(),
-      Math.abs(lowerAndRacket - upperLength) + 0.002,
-      upperLength + lowerAndRacket - 0.002,
-    );
     if (line.lengthSq() < 0.000001) return;
-    const direction = line.normalize();
-    const bend = new THREE.Vector3(1, -0.18, 0.18)
-      .addScaledVector(
-        direction,
-        -new THREE.Vector3(1, -0.18, 0.18).dot(direction),
-      )
+    const upperLength = 0.32,
+      forearmLength = 0.305,
+      racketLength = 0.285 / rig.bodyScale;
+    const radial = line.clone().normalize();
+    const distance = Math.min(
+      line.length(),
+      upperLength + forearmLength + racketLength - 0.002,
+    );
+    const actualTarget = shoulder.clone().addScaledVector(radial, distance);
+    // The wrist can cock independently: the face is upright in ready/volley poses,
+    // and opens downwards for a low pickup. This removes the old edge-on stick pose.
+    const preferred = new THREE.Vector3(
+      rig.hand * 0.12,
+      target.y < 0.32 ? -0.88 : 1,
+      -0.08,
+    ).normalize();
+    const cosineLimit = clamp(
+      (distance * distance + racketLength * racketLength - 0.622 ** 2) /
+        (2 * distance * racketLength),
+      -1,
+      1,
+    );
+    const maxAngle = Math.acos(cosineLimit);
+    const requestedAngle = Math.acos(clamp(radial.dot(preferred), -1, 1));
+    const angle = Math.min(requestedAngle, maxAngle * 0.96);
+    const side = preferred
+      .clone()
+      .addScaledVector(radial, -preferred.dot(radial));
+    if (side.lengthSq() < 0.0001)
+      side.set(rig.hand, 0, 0).addScaledVector(radial, -radial.x * rig.hand);
+    side.normalize();
+    const racketAxis = radial
+      .clone()
+      .multiplyScalar(Math.cos(angle))
+      .addScaledVector(side, Math.sin(angle))
       .normalize();
+    const wrist = actualTarget
+      .clone()
+      .addScaledVector(racketAxis, -racketLength);
+    const wristLine = wrist.clone().sub(shoulder);
+    const armDistance = clamp(
+      wristLine.length(),
+      0.022,
+      upperLength + forearmLength - 0.0005,
+    );
+    const armAxis = wristLine.normalize();
+    const pole = new THREE.Vector3(
+      rig.hand * (rig.backhand ? 0.3 : 1),
+      -0.18,
+      0.33,
+    );
+    const bend = pole.addScaledVector(armAxis, -pole.dot(armAxis)).normalize();
     if (bend.lengthSq() < 0.001)
-      bend.set(0, 0, 1).addScaledVector(direction, -direction.z).normalize();
+      bend.set(0, 0, 1).addScaledVector(armAxis, -armAxis.z).normalize();
     const cosine = clamp(
-      (upperLength ** 2 + distance ** 2 - lowerAndRacket ** 2) /
-        (2 * upperLength * distance),
+      (upperLength ** 2 + armDistance ** 2 - forearmLength ** 2) /
+        (2 * upperLength * armDistance),
       -1,
       1,
     );
     const elbow = shoulder
       .clone()
-      .addScaledVector(direction, cosine * upperLength)
+      .addScaledVector(armAxis, cosine * upperLength)
       .addScaledVector(bend, Math.sqrt(1 - cosine ** 2) * upperLength);
-    const actualTarget = shoulder.clone().addScaledVector(direction, distance);
     const down = new THREE.Vector3(0, -1, 0);
     const upperRotation = new THREE.Quaternion().setFromUnitVectors(
       down,
       elbow.clone().sub(shoulder).normalize(),
     );
-    const forearmDirection = actualTarget
-      .sub(elbow)
-      .normalize()
-      .applyQuaternion(upperRotation.clone().invert());
     const lowerRotation = new THREE.Quaternion().setFromUnitVectors(
       down,
-      forearmDirection,
+      wrist
+        .clone()
+        .sub(elbow)
+        .normalize()
+        .applyQuaternion(upperRotation.clone().invert()),
     );
-    rig.rightArm.quaternion.slerp(upperRotation, weight);
-    rig.rightElbow.quaternion.slerp(lowerRotation, weight);
-    // Center of the pala extends .38m beyond its grip, collinear with the forearm.
-    rig.racket.quaternion.slerp(
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0)),
-      weight,
+    rig.dominantArm.quaternion.slerp(upperRotation, weight);
+    rig.dominantElbow.quaternion.slerp(lowerRotation, weight);
+    const chainInverse = upperRotation.clone().multiply(lowerRotation).invert();
+    const yAxis = racketAxis.clone().applyQuaternion(chainInverse).normalize();
+    const normal = new THREE.Vector3(0, 0, -1);
+    if (faceToward && faceToward.lengthSq() > 0.001) {
+      const upperWorld = rig.upper.getWorldQuaternion(new THREE.Quaternion());
+      normal.copy(faceToward).applyQuaternion(upperWorld.invert());
+    }
+    normal
+      .applyQuaternion(chainInverse)
+      .addScaledVector(yAxis, -normal.dot(yAxis));
+    if (normal.lengthSq() < 0.002)
+      normal.set(0, 0, 1).addScaledVector(yAxis, -yAxis.z);
+    normal.normalize();
+    const xAxis = new THREE.Vector3().crossVectors(yAxis, normal).normalize();
+    normal.crossVectors(xAxis, yAxis).normalize();
+    const orientation = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(xAxis, yAxis, normal),
     );
+    rig.racket.quaternion.slerp(orientation, weight);
+  }
+
+  private stabilizeFeet(rig: Rig, vx: number, vz: number, jump: number) {
+    if (jump > 0.035) {
+      rig.feetReady = false;
+      return;
+    }
+    rig.root.updateMatrixWorld(true);
+    const speed = Math.hypot(vx, vz);
+    const heading = new THREE.Vector3(vx, 0, vz);
+    if (speed > 0.1) heading.normalize();
+    const pelvisWorld = rig.body.getWorldPosition(new THREE.Vector3());
+    const phases = [rig.gaitPhase, rig.gaitPhase + Math.PI];
+    const plants = [rig.leftPlant, rig.rightPlant];
+    const planted = [rig.leftPlanted, rig.rightPlanted];
+    for (let side = 0; side < 2; side++) {
+      const sign = side === 0 ? -1 : 1;
+      const base = rig.root.localToWorld(
+        new THREE.Vector3(sign * 0.185, 0, sign * 0.045),
+      );
+      const phase = ((phases[side] % TAU) + TAU) % TAU;
+      const stance = speed < 0.2 || phase >= Math.PI;
+      const target = base.clone();
+      const stepLength = Math.min(0.32, speed * 0.055);
+      if (stance) {
+        if (
+          !rig.feetReady ||
+          !planted[side] ||
+          plants[side].distanceTo(
+            new THREE.Vector3(pelvisWorld.x, 0, pelvisWorld.z),
+          ) > 0.55
+        ) {
+          plants[side].copy(base).addScaledVector(heading, stepLength * 0.55);
+          plants[side].y = 0;
+        }
+        target.copy(plants[side]);
+      } else {
+        const t = phase / Math.PI;
+        target.addScaledVector(
+          heading,
+          THREE.MathUtils.lerp(-stepLength, stepLength, t),
+        );
+        target.y = Math.sin(t * Math.PI) * (0.055 + Math.min(speed, 5) * 0.01);
+      }
+      target.y += 0.08 * rig.bodyScale;
+      this.solveLeg(rig, sign, target);
+      if (side === 0) rig.leftPlanted = stance;
+      else rig.rightPlanted = stance;
+    }
+    rig.feetReady = true;
+  }
+
+  private solveLeg(rig: Rig, side: number, worldAnkle: THREE.Vector3) {
+    const hip = side < 0 ? rig.leftLeg : rig.rightLeg;
+    const knee = side < 0 ? rig.leftKnee : rig.rightKnee;
+    const ankle = side < 0 ? rig.leftAnkle : rig.rightAnkle;
+    const target = rig.body.worldToLocal(worldAnkle.clone());
+    const delta = target.clone().sub(hip.position),
+      length = clamp(delta.length(), 0.09, 0.808);
+    const axis = delta.normalize();
+    const pole = new THREE.Vector3(side * 0.12, 0, -1)
+      .addScaledVector(axis, -new THREE.Vector3(side * 0.12, 0, -1).dot(axis))
+      .normalize();
+    const cosine = clamp(
+      (0.43 ** 2 + length ** 2 - 0.379 ** 2) / (2 * 0.43 * length),
+      -1,
+      1,
+    );
+    const bend = hip.position
+      .clone()
+      .addScaledVector(axis, 0.43 * cosine)
+      .addScaledVector(pole, 0.43 * Math.sqrt(1 - cosine ** 2));
+    const upperQ = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, -1, 0),
+      bend.clone().sub(hip.position).normalize(),
+    );
+    const lowerQ = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, -1, 0),
+      target
+        .clone()
+        .sub(bend)
+        .normalize()
+        .applyQuaternion(upperQ.clone().invert()),
+    );
+    hip.quaternion.copy(upperQ);
+    knee.quaternion.copy(lowerQ);
+    const worldParent = rig.body
+      .getWorldQuaternion(new THREE.Quaternion())
+      .multiply(upperQ)
+      .multiply(lowerQ);
+    const desiredFoot = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      rig.root.rotation.y + rig.body.rotation.y * 0.5 + side * 0.045,
+    );
+    ankle.quaternion.copy(worldParent.invert().multiply(desiredFoot));
   }
 
   private updateImpacts(state: TacticalView, time: number) {
