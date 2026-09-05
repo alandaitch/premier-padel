@@ -7,6 +7,7 @@ import {
   type PointOutcome,
 } from './physics';
 import { MatchPresentation, teamFrustration } from './match-presentation';
+import { PAQUITO_GUITAR_SECONDS } from './paquito-celebration';
 const roster = ['lebron', 'augsburger', 'galan', 'chingotto'];
 const idle: Input = {
   moveX: 0,
@@ -133,6 +134,75 @@ function finalFor(winner: 0 | 1): GameState {
   state.pointWinner = winner;
   return state;
 }
+void test('Paquito guitar follows his own winning smash in every roster slot', () => {
+  for (const position of [0, 1, 2, 3]) {
+    const names = ['tapia', 'coello', 'galan', 'chingotto'];
+    names[position] = 'navarro';
+    const winner = (position < 2 ? 0 : 1) as 0 | 1;
+    const state = fixture({
+      winner,
+      winningPlayerId: position,
+      winningShot: 'remate',
+    });
+    const before = JSON.stringify(state);
+    const director = new MatchPresentation();
+    const scene = director.update(state, 0, names)!;
+    assert.equal(scene.celebrationStyle, 'paquito-guitar');
+    assert.equal(scene.celebrationPlayerId, position);
+    assert.equal(director.signatureAvailable, false);
+    for (
+      let frame = 0;
+      frame < Math.floor(PAQUITO_GUITAR_SECONDS * 60) - 1;
+      frame++
+    )
+      assert.equal(director.update(state, 1 / 60, names)?.phase, 'celebration');
+    assert.equal(director.update(state, 0.05, names), null);
+    assert.equal(
+      JSON.stringify(state),
+      before,
+      'the celebration cannot advance the ball or score',
+    );
+  }
+});
+void test('Paquito guitar excludes a partner smash, other shot, lost point and missing scorer', () => {
+  const names = ['navarro', 'bergamini', 'galan', 'chingotto'];
+  for (const patch of [
+    { winner: 0, winningPlayerId: 1, winningShot: 'remate' },
+    { winner: 0, winningPlayerId: 0, winningShot: 'vibora' },
+    { winner: 1, winningPlayerId: 0, winningShot: 'remate' },
+    { winner: 0, winningShot: 'remate' },
+    { winner: 0, winningPlayerId: 0 },
+    { winner: 0, winningPlayerId: 7, winningShot: 'remate' },
+  ] as Partial<PointOutcome>[]) {
+    const scene = new MatchPresentation().update(fixture(patch), 0, names)!;
+    assert.equal(scene.celebrationStyle, undefined);
+    assert.equal(scene.celebrationPlayerId, undefined);
+  }
+});
+void test('skipping Paquito guitar cannot replay it or leak its style into the next point', () => {
+  const names = ['navarro', 'bergamini', 'galan', 'chingotto'];
+  const state = fixture({
+    winner: 0,
+    winningPlayerId: 0,
+    winningShot: 'remate',
+  });
+  const director = new MatchPresentation();
+  assert.equal(
+    director.update(state, 0, names)?.celebrationStyle,
+    'paquito-guitar',
+  );
+  director.skip();
+  assert.equal(director.update(state, 0.1, names), null);
+  state.lastPoint = {
+    ...state.lastPoint!,
+    id: 2,
+    winningPlayerId: 1,
+    winningShot: 'remate',
+  };
+  const next = director.update(state, 0, names)!;
+  assert.equal(next.id, 2);
+  assert.equal(next.celebrationStyle, undefined);
+});
 void test('signature is available only when Lebron is on the winning match team, in either slot', () => {
   for (const position of [0, 1, 2, 3])
     for (const winner of [0, 1] as const) {

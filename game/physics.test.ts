@@ -20,6 +20,11 @@ import {
   TRAINING_DRILLS,
   type TrainingDrill,
 } from './physics';
+import {
+  ARENA_OBSTACLES,
+  arenaObstacleAt,
+  findArenaPath,
+} from './arena-layout';
 const idle: Input = {
   moveX: 0,
   moveZ: 0,
@@ -31,6 +36,10 @@ const idle: Input = {
 const step = (match: PadelMatch, seconds: number, input = idle) => {
   for (let i = 0; i < seconds * 120; i++) match.update(1 / 120, input);
 };
+const distanceForTest = (
+  a: { x: number; z: number },
+  b: { x: number; z: number },
+) => Math.hypot(a.x - b.x, a.z - b.z);
 const winGame = (score: ScoreKeeper, team: Team) => {
   for (let i = 0; i < 4; i++) score.award(team);
 };
@@ -1337,6 +1346,104 @@ void test('players leave and re-enter through their doorway but cannot cross wal
   for (let i = 0; i < 150; i++) h.movePlayer(p, 3, 0.65, 5.7, 1 / 120);
   assert.equal(p.outside, false);
   assert.ok(p.x < 4.5);
+});
+
+void test('exterior routing avoids chair, benches and split grandstands', () => {
+  assert.equal(ARENA_OBSTACLES.length, 11);
+  assert.equal(arenaObstacleAt({ x: 7, z: 0 })?.id, 'umpire-chair');
+  assert.equal(arenaObstacleAt({ x: 8, z: 5.8 })?.id, 'bench-north');
+  assert.equal(arenaObstacleAt({ x: -12, z: -4 })?.id, 'grandstand-left-south');
+
+  const direct = findArenaPath(
+    { x: 5.45, z: 0.65 },
+    { x: 9.7, z: -4 },
+    COURT.playerRadius,
+  );
+  assert.ok(
+    direct.points.length > 2,
+    'blocked diagonal receives safe waypoints',
+  );
+
+  const match = new PadelMatch(),
+    s = match.getState(),
+    h = internal(match),
+    p = s.players[0],
+    target = { x: 9.7, z: -4 };
+  Object.assign(p, { x: 5.45, z: 0.65, vx: 0, vz: 0, outside: true });
+  for (
+    let frame = 0;
+    frame < 900 && distanceForTest(p, target) > 0.22;
+    frame++
+  ) {
+    const route = h.routePlayer(p, target);
+    h.movePlayer(p, route.waypoint.x, route.waypoint.z, 5.7, 1 / 120);
+    assert.equal(
+      arenaObstacleAt(p, COURT.playerRadius - 1e-4),
+      null,
+      `player entered arena obstacle at ${p.x},${p.z}`,
+    );
+  }
+  assert.ok(
+    distanceForTest(p, target) <= 0.22,
+    `route stopped at ${p.x},${p.z}`,
+  );
+});
+
+void test('manual exterior movement slides around solids without crossing them', () => {
+  const match = new PadelMatch(),
+    s = match.getState(),
+    h = internal(match),
+    p = s.players[0];
+  Object.assign(p, { x: 6.2, z: 0, vx: 0, vz: 0, outside: true });
+  for (let frame = 0; frame < 45; frame++) h.movePlayer(p, 8, 0, 5.7, 1 / 120);
+  assert.ok(p.x <= 6.55 - COURT.playerRadius + 0.002);
+  for (let frame = 0; frame < 240; frame++)
+    h.movePlayer(p, 8, 1.25, 5.7, 1 / 120);
+  assert.ok(p.x > 7.8 && p.z > 0.86, `chair slide stopped at ${p.x},${p.z}`);
+  assert.equal(arenaObstacleAt(p, COURT.playerRadius - 1e-4), null);
+
+  Object.assign(p, { x: 9.5, z: 4, vx: 0, vz: 0, outside: true });
+  for (let frame = 0; frame < 90; frame++) h.movePlayer(p, 12, 4, 5.7, 1 / 120);
+  assert.ok(p.x <= 9.925 - COURT.playerRadius + 0.002);
+  assert.equal(arenaObstacleAt(p, COURT.playerRadius - 1e-4), null);
+});
+
+void test('interior player depth is not clamped by exterior arena bounds', () => {
+  const match = new PadelMatch(),
+    s = match.getState(),
+    h = internal(match),
+    p = s.players[0];
+  Object.assign(p, { x: 0, z: 8.9, vx: 0, vz: 0, outside: false });
+  for (let frame = 0; frame < 60; frame++)
+    h.movePlayer(p, 0, 9.4, 5.7, 1 / 120);
+  assert.ok(p.z > 9.2, `interior depth was truncated at ${p.z}`);
+  assert.equal(p.outside, false);
+});
+
+void test('an exterior ball cannot tunnel through the umpire chair', () => {
+  const match = new PadelMatch(),
+    s = match.getState(),
+    h = internal(match);
+  s.phase = 'rally';
+  s.ballOutside = true;
+  h.lastHitter = 0;
+  h.bounced = true;
+  h.bounces = 1;
+  Object.assign(s.ball, {
+    x: 6.2,
+    y: 1.2,
+    z: 0,
+    vx: 28,
+    vy: 0,
+    vz: 0,
+    wx: 0,
+    wy: 0,
+    wz: 0,
+  });
+  match.update(0.05, idle);
+  assert.equal(s.phase, 'point');
+  assert.equal(s.pointWinner, 0);
+  assert.ok(s.ball.x <= 6.55 - BALL_PHYSICS.radius + 0.002);
 });
 
 void test('ball passes the actual opening but strikes mesh above it; net ends at its post', () => {

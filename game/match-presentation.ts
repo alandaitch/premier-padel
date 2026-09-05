@@ -1,9 +1,12 @@
+import { PAQUITO_GUITAR_SECONDS } from './paquito-celebration';
 import type { GameState, Team, PointOutcome } from './physics';
 
 export interface PresentationState {
   id: number;
   phase: 'celebration' | 'walk' | 'bench' | 'return' | 'signature';
   signaturePlayerId?: number;
+  celebrationStyle?: 'paquito-guitar';
+  celebrationPlayerId?: number;
   signatureAvailable?: boolean;
   signatureSecondsLeft?: number;
   progress: number;
@@ -128,7 +131,15 @@ export class MatchPresentation {
           : frustration[0] > frustration[1]
             ? 0
             : 1;
+      const paquitoPlayer = point.winningPlayerId;
+      const paquito =
+        paquitoPlayer !== undefined &&
+        playerIds[paquitoPlayer] === 'navarro' &&
+        Math.floor(paquitoPlayer / 2) === point.winner &&
+        point.winningShot === 'remate';
       this.template = {
+        celebrationStyle: paquito ? 'paquito-guitar' : undefined,
+        celebrationPlayerId: paquito ? paquitoPlayer : undefined,
         id: point.id,
         signaturePlayerId:
           signaturePlayerId >= 0 ? signaturePlayerId : undefined,
@@ -147,11 +158,13 @@ export class MatchPresentation {
           duration:
             signaturePlayerId >= 0
               ? 8
-              : point.match
-                ? 3.8
-                : point.game
-                  ? 2
-                  : 1.35,
+              : paquito
+                ? PAQUITO_GUITAR_SECONDS
+                : point.match
+                  ? 3.8
+                  : point.game
+                    ? 2
+                    : 1.35,
         },
       ];
       if (!point.match && point.rest !== 'none') {
@@ -195,11 +208,13 @@ export class MatchPresentation {
                     : 'Cambio de lado'
                   : item.phase === 'return'
                     ? 'Volvemos a la pista'
-                    : this.point.match
-                      ? 'Partido. Saludo a los rivales.'
-                      : this.point.game
-                        ? 'Juego. ¡Vamos!'
-                        : '¡Buen punto!';
+                    : result.celebrationStyle === 'paquito-guitar'
+                      ? '¡La guitarra de Paquito!'
+                      : this.point.match
+                        ? 'Partido. Saludo a los rivales.'
+                        : this.point.game
+                          ? 'Juego. ¡Vamos!'
+                          : '¡Buen punto!';
         return result;
       }
       time -= item.duration;

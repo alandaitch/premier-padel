@@ -1,3 +1,5 @@
+import type { PresentationAudioCue } from './presentation-audio';
+
 /** Local Web Audio synthesis: no streaming, no external audio assets. */
 export class PadelAudio {
   private ctx: AudioContext | null = null;
@@ -49,6 +51,152 @@ export class PadelAudio {
     const a = b.getChannelData(0);
     for (let i = 0; i < a.length; i++) a[i] = Math.random() * 2 - 1;
     return b;
+  }
+  playPresentationCue(cue: PresentationAudioCue) {
+    if (cue.kind === 'bench-voice') this.playBenchVoice(cue);
+    else this.playSmashExhale(cue);
+  }
+  private playBenchVoice(
+    cue: Extract<PresentationAudioCue, { kind: 'bench-voice' }>,
+  ) {
+    const c = this.ctx,
+      m = this.master;
+    if (!c || !m || c.state !== 'running') return;
+    const now = c.currentTime,
+      pan = c.createStereoPanner(),
+      base =
+        cue.speaker === 'coach' ? 142 : cue.speaker === 'player-a' ? 188 : 218,
+      moodLift =
+        cue.mood === 'frustrated' ? 1.16 : cue.mood === 'tense' ? 1.08 : 1,
+      pace =
+        cue.mood === 'frustrated'
+          ? 0.125
+          : cue.mood === 'tense'
+            ? 0.145
+            : 0.165,
+      contours = [
+        [0, 3, -2],
+        [0, -2, 4, 1],
+        [0, 5, 2],
+      ] as const,
+      contour = contours[cue.variant];
+    pan.pan.value = Math.max(-0.75, Math.min(0.75, cue.pan));
+    pan.connect(m);
+
+    contour.forEach((semitones, index) => {
+      const delay = index * pace,
+        duration = pace * 0.72,
+        frequency = base * moodLift * 2 ** (semitones / 12),
+        tone = c.createOscillator(),
+        filter = c.createBiquadFilter(),
+        envelope = c.createGain();
+      tone.type = cue.speaker === 'coach' ? 'sawtooth' : 'triangle';
+      tone.frequency.setValueAtTime(frequency, now + delay);
+      tone.frequency.exponentialRampToValueAtTime(
+        frequency * (cue.mood === 'frustrated' ? 0.91 : 0.97),
+        now + delay + duration,
+      );
+      filter.type = 'lowpass';
+      filter.frequency.value =
+        900 + index * 115 + (cue.speaker === 'coach' ? 0 : 280);
+      filter.Q.value = 1.35;
+      envelope.gain.setValueAtTime(0.001, now + delay);
+      envelope.gain.linearRampToValueAtTime(
+        (0.045 + index * 0.003) * cue.intensity,
+        now + delay + 0.012,
+      );
+      envelope.gain.exponentialRampToValueAtTime(0.001, now + delay + duration);
+      tone.connect(filter).connect(envelope).connect(pan);
+      tone.start(now + delay);
+      tone.stop(now + delay + duration + 0.01);
+      tone.onended = () => {
+        tone.disconnect();
+        filter.disconnect();
+        envelope.disconnect();
+      };
+
+      // Tiny filtered attacks turn the notes into abstract syllables, not words.
+      const attack = c.createBufferSource(),
+        attackFilter = c.createBiquadFilter(),
+        attackGain = c.createGain();
+      attack.buffer = this.noise(0.026);
+      attackFilter.type = 'bandpass';
+      attackFilter.frequency.value = 1250 + index * 170;
+      attackFilter.Q.value = 1.8;
+      attackGain.gain.setValueAtTime(0.014 * cue.intensity, now + delay);
+      attackGain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.024);
+      attack.connect(attackFilter).connect(attackGain).connect(pan);
+      attack.start(now + delay);
+      attack.stop(now + delay + 0.026);
+      attack.onended = () => {
+        attack.disconnect();
+        attackFilter.disconnect();
+        attackGain.disconnect();
+      };
+    });
+
+    const cleanup = c.createOscillator(),
+      cleanupGain = c.createGain();
+    cleanupGain.gain.value = 0;
+    cleanup.connect(cleanupGain).connect(pan);
+    cleanup.start(now);
+    cleanup.stop(now + contour.length * pace + 0.08);
+    cleanup.onended = () => {
+      cleanup.disconnect();
+      cleanupGain.disconnect();
+      pan.disconnect();
+    };
+  }
+  private playSmashExhale(
+    cue: Extract<PresentationAudioCue, { kind: 'smash-exhale' }>,
+  ) {
+    const c = this.ctx,
+      m = this.master;
+    if (!c || !m || c.state !== 'running') return;
+    const now = c.currentTime,
+      intensity = Math.max(0.35, Math.min(0.75, cue.intensity)),
+      pan = c.createStereoPanner(),
+      breath = c.createBufferSource(),
+      breathFilter = c.createBiquadFilter(),
+      breathGain = c.createGain();
+    pan.pan.value = Math.max(-0.8, Math.min(0.8, cue.x / 7));
+    pan.connect(m);
+    breath.buffer = this.noise(0.18);
+    breathFilter.type = 'bandpass';
+    breathFilter.frequency.value = 820;
+    breathFilter.Q.value = 0.72;
+    breathGain.gain.setValueAtTime(0.001, now);
+    breathGain.gain.linearRampToValueAtTime(0.055 * intensity, now + 0.014);
+    breathGain.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
+    breath.connect(breathFilter).connect(breathGain).connect(pan);
+    breath.start(now);
+    breath.stop(now + 0.18);
+
+    const effort = c.createOscillator(),
+      effortFilter = c.createBiquadFilter(),
+      effortGain = c.createGain();
+    effort.type = 'triangle';
+    effort.frequency.setValueAtTime(145 + intensity * 32, now);
+    effort.frequency.exponentialRampToValueAtTime(82, now + 0.13);
+    effortFilter.type = 'lowpass';
+    effortFilter.frequency.value = 520;
+    effortGain.gain.setValueAtTime(0.001, now);
+    effortGain.gain.linearRampToValueAtTime(0.033 * intensity, now + 0.009);
+    effortGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    effort.connect(effortFilter).connect(effortGain).connect(pan);
+    effort.start(now);
+    effort.stop(now + 0.15);
+    effort.onended = () => {
+      effort.disconnect();
+      effortFilter.disconnect();
+      effortGain.disconnect();
+    };
+    breath.onended = () => {
+      breath.disconnect();
+      breathFilter.disconnect();
+      breathGain.disconnect();
+      pan.disconnect();
+    };
   }
   play(type: string, x = 0, power = 0.6) {
     const c = this.ctx,

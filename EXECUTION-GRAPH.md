@@ -34,3 +34,22 @@ Se usan hasta cuatro agentes activos simultáneos, contando la raíz. Los mensaj
 | Raíz | interfaz, circuit-roster, demo, grabador, integración y despliegue | prueba de UI publicada y videos nuevos |
 
 La instrucción de conservar videos está en REVIEW-VIDEOS.md. Las tomas se agregan; nunca se reemplazan.
+
+## Ejecución V10
+
+```mermaid
+flowchart LR
+ S[Estadio y árbitro · modelo principal] --> F[Renderer congelado]
+ M[Referencias y poses · modelo principal] --> F
+ A[Voces y exhalación · Sol high] --> O[Rutas y obstáculos · Sol high]
+ F --> I[Integración y capturas · raíz]
+ O --> I
+ I --> Q[Revisión visual independiente · modelo principal]
+ I --> AU[Auditoría de señal · Sol high]
+ Q --> D[Publicación y runtime · raíz]
+ AU --> D
+```
+
+La raíz implementó disparadores de festejo, integración sonora y grabación. El agente de estadio cedió renderer.ts al de animación tras congelar su geometría. El agente de audio continuó con obstáculos y pruebas mientras animación avanzaba. La revisión visual pidió cámaras nuevas; las primeras tomas se conservaron.
+
+El módulo de obstáculos produjo una regresión del límite Z interior. La suite completa la detectó; se corrigió sin ampliar su límite de ejecución. La verificación final incluye partido IA completo y rescates naturales por puerta.

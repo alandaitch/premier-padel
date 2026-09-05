@@ -42,13 +42,13 @@ function escapeHtml(value) {
 
 function categoryFor(stem) {
   const name = stem.toLocaleLowerCase('es');
-  if (/malla|reja/u.test(name)) return 'sonido';
-  if (/estadio|exterior-recuperacion/u.test(name)) return 'estadio';
+  if (/malla|reja|exhalacion/u.test(name)) return 'sonido';
+  if (/estadio|arbitro|exterior-recuperacion/u.test(name)) return 'estadio';
   if (/femenin[oa]/u.test(name)) return 'femenino';
-  if (/celebr|reaccion|victoria|festej/u.test(name)) return 'celebraciones';
+  if (/celebr|reaccion|victoria|festej|guitarra/u.test(name)) return 'celebraciones';
   if (/banquillo|banco/u.test(name)) return 'bancos';
   if (/camiseta|remera/u.test(name)) return 'camisetas';
-  if (/pared/u.test(name)) return 'paredes';
+  if (/pared|rescate/u.test(name)) return 'paredes';
   if (/remate|smash/u.test(name)) return 'remates';
   if (/demo|tactic/u.test(name)) return 'demo-táctica';
   return 'golpes';
@@ -84,6 +84,7 @@ async function buildRegistry() {
   for (const revisionDir of revisionDirs) {
     const version = revisionDir.name;
     const files = await scanFiles(path.join(outputsDir, version));
+    const notes = await fs.readFile(path.join(outputsDir, version, 'takes.json'), 'utf8').then(JSON.parse).catch(() => ({}));
     const grouped = new Map();
     for (const file of files) {
       const relFromVersion = slash(file.relative);
@@ -105,7 +106,8 @@ async function buildRegistry() {
         filename: take.filename,
         version,
         versionLabel: version.replace('revision-', '').toUpperCase(),
-        outtake: take.takePath.split('/').includes('outtakes'),
+        outtake: take.takePath.split('/').includes('outtakes') || !!notes[take.key]?.outtake,
+        note: notes[take.key]?.note ?? '',
         category: categoryFor(title),
         mp4: take.files.mp4 ?? null,
         webm: take.files.webm ?? null,
@@ -128,7 +130,7 @@ function renderTake(take) {
     : '';
   return `<article class="card" data-version="${escapeHtml(take.version)}" data-category="${escapeHtml(take.category)}" data-outtake="${take.outtake ? 'true' : 'false'}">
     <div class="card-head"><span class="badge">${escapeHtml(take.versionLabel)}</span>${take.outtake ? '<span class="outtake">OUTTAKE</span>' : ''}<span class="category">${escapeHtml(categoryLabels[take.category])}</span></div>
-    <h3>${escapeHtml(take.title)}</h3><p class="filename">${escapeHtml(take.filename)}</p>${playback}<div class="links">${mp4}${webm}</div>
+    <h3>${escapeHtml(take.title)}</h3><p class="filename">${escapeHtml(take.filename)}</p>${take.note ? `<p class="muted">${escapeHtml(take.note)}</p>` : ''}${playback}<div class="links">${mp4}${webm}</div>
   </article>`;
 }
 

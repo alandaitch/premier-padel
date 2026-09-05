@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { COURT, type GameState } from './physics';
 import { matchAppearances, type PlayerAppearance } from './player-profiles';
 import type { PresentationState } from './match-presentation';
+import { viboraPreparation, viboraFollowThrough } from './shot-motion-v10';
+import { paquitoGuitarPose } from './paquito-celebration';
 
 type CameraMode = 'tv' | 'cerca' | 'cenital';
 export type ChargePreview = {
@@ -58,6 +60,7 @@ type Rig = {
   bottle: THREE.Group;
   skirt: { mesh: THREE.Mesh; rest: Float32Array } | null;
   hairTail: THREE.Group | null;
+  expressionMouth?: THREE.Group;
 };
 
 type ContactRecord = {
@@ -108,7 +111,7 @@ export class PadelRenderer {
   private presentationStarts: THREE.Vector3[] = [];
   private presentationRoutes: THREE.Vector3[][] = [];
   private endsSwapped = false;
-  private benchX = COURT.halfWidth + COURT.exteriorWidth + 0.85;
+  private benchX = 8;
   private benchZ = 5.8;
   private ball: THREE.Mesh;
   private ballViewPosition = new THREE.Vector3();
@@ -662,17 +665,6 @@ export class PadelRenderer {
         0,
       );
       exterior.receiveShadow = true;
-      // A short matching apron marks the two doors, not the recovery boundary.
-      const doorwayApron = this.box(
-        0.6,
-        0.002,
-        3,
-        this.fieldMaterial,
-        x + Math.sign(x) * 0.3,
-        0.001,
-        0,
-      );
-      doorwayApron.receiveShadow = true;
     }
     // Net mesh has individual woven squares, a subtly curved tape, and side tension posts.
     const netMap = this.textureCanvas(
@@ -774,7 +766,7 @@ export class PadelRenderer {
       }
     }
     // Both team benches share the physical right side of the fixed stadium.
-    // Their nearest solid edge is beyond the complete 8m exterior recovery zone.
+    // The physics obstacle layout follows these close sideline positions.
     for (const end of [-1, 1]) {
       const area = new THREE.Group();
       area.position.set(this.benchX, 0, end * this.benchZ);
@@ -854,24 +846,37 @@ export class PadelRenderer {
       }
       this.sphere(0.055, 0.055, 0.045, frame, fan, 0, 0, -0.02);
     }
-    // Raised umpire chair, beyond the full legal recovery zone.
-    const umpireX = -(COURT.halfWidth + COURT.exteriorWidth + 0.9);
-    this.box(
-      0.65,
-      0.12,
-      0.8,
-      this.material(0x596a74),
-      umpireX,
-      1.75,
-      0,
-      this.scene,
-    );
-    for (const z of [-0.34, 0.34])
-      this.box(0.05, 1.75, 0.05, metal, umpireX - 0.2, 0.875, z, this.scene);
-    for (let y = 0.2; y < 1.7; y += 0.3)
-      this.box(0.45, 0.04, 0.04, metal, umpireX + 0.19, y, 0.4, this.scene);
-    this.box(0.05, 0.7, 0.8, black, umpireX - 0.33, 2.06, 0, this.scene);
-    this.makeStaff(umpireX - 0.01, 1.78, 0, Math.PI / 2, true);
+    // Elevated umpire is between the benches, facing the net from the right side.
+    const umpireX = 7;
+    const chair = new THREE.Group();
+    chair.name = 'Silla alta de árbitro · lateral derecho';
+    chair.position.set(umpireX, 0, 0);
+    chair.rotation.y = Math.PI / 2;
+    this.scene.add(chair);
+    this.box(0.68, 0.09, 0.7, metal, 0, 1.8, 0, chair);
+    this.box(0.6, 0.05, 0.62, this.material(0x1c4d99), 0, 1.825, 0, chair);
+    for (const side of [-1, 1]) {
+      for (const front of [-1, 1])
+        this.box(
+          0.055,
+          1.8,
+          0.055,
+          metal,
+          side * 0.3,
+          0.9,
+          front * 0.27,
+          chair,
+        );
+      this.box(0.055, 0.7, 0.055, metal, side * 0.3, 2.1, 0.28, chair);
+      this.box(0.06, 0.055, 0.65, black, side * 0.36, 2.12, 0, chair);
+      this.box(0.055, 1.8, 0.055, metal, side * 0.29, 0.9, 0.48, chair);
+    }
+    for (let y = 0.26; y < 1.7; y += 0.27)
+      this.box(0.59, 0.045, 0.075, metal, 0, y, 0.48, chair);
+    this.box(0.63, 0.53, 0.065, this.material(0xe3e6e5), 0, 2.18, 0.3, chair);
+    this.box(0.55, 0.035, 0.16, metal, 0, 1.43, -0.36, chair);
+    this.box(0.5, 0.035, 0.22, black, 0, 2.06, -0.32, chair);
+    this.makeStaff(umpireX, 1.74, 0, Math.PI / 2, true);
     this.makeStaff(6.7, 0, -9.8, -Math.PI / 2, false);
     this.makeStaff(-6.7, 0, -9.8, Math.PI / 2, false);
   }
@@ -980,30 +985,27 @@ export class PadelRenderer {
       this.box(25, 0.55 + row * 0.52, 0.89, concrete, 0, y / 2, z, this.scene);
       rows.push({ x: -11.7, y: y + 0.15, z, rot: 0, count: 38, step: 0.63 });
       for (const side of [-1, 1]) {
-        const x =
-          side *
-          (COURT.halfWidth +
-            COURT.exteriorWidth +
-            (side > 0 ? 2.45 : 0.9) +
-            row * 0.85);
-        this.box(
-          0.86,
-          0.55 + row * 0.52,
-          16.4,
-          concrete,
-          x,
-          y / 2,
-          0,
-          this.scene,
-        );
-        rows.push({
-          x,
-          y: y + 0.15,
-          z: -7.475,
-          rot: (side * -Math.PI) / 2,
-          count: 24,
-          step: 0.65,
-        });
+        const x = side * ((side > 0 ? 10.6 : 10) + row * 0.85);
+        for (const end of [-1, 1]) {
+          this.box(
+            0.86,
+            0.55 + row * 0.52,
+            6.6,
+            concrete,
+            x,
+            y / 2,
+            end * 4.9,
+            this.scene,
+          );
+          rows.push({
+            x,
+            y: y + 0.15,
+            z: end * 4.9 - 2.925,
+            rot: (side * -Math.PI) / 2,
+            count: 10,
+            step: 0.65,
+          });
+        }
         // The low corner sections tighten the bowl without occupying the
         // full exterior recovery rectangle or the walk-around route at z=±11.35.
         const cornerX = side * (9.7 + row * 0.85);
@@ -1281,22 +1283,32 @@ export class PadelRenderer {
       crowdHands,
     );
     for (const side of [-1, 1]) {
-      const x =
-        side * (COURT.halfWidth + COURT.exteriorWidth + (side > 0 ? 1.9 : 0.4));
-      this.box(0.05, 0.05, 16.3, rails, x, 1.02, 0, this.scene);
-      for (let z = -8; z <= 8; z += 2)
-        this.box(0.05, 1, 0.05, rails, x, 0.5, z, this.scene);
-      const panel = this.makeBanner(
-        'QATAR AIRWAYS     •     Red Bull     •     Wilson     •     MONDO',
-        16,
-        0.55,
-        '#0a1521',
-        '#b8c8c9',
-        43,
-      );
-      panel.position.set(x, 0.45, 0);
-      panel.rotation.y = x > 0 ? -Math.PI / 2 : Math.PI / 2;
-      this.scene.add(panel);
+      const x = side * (side > 0 ? 9.95 : 9.35);
+      for (const end of [-1, 1]) {
+        this.box(0.05, 0.05, 6.6, rails, x, 1.02, end * 4.9, this.scene);
+        for (let step = 0; step < 5; step++)
+          this.box(
+            0.05,
+            1,
+            0.05,
+            rails,
+            x,
+            0.5,
+            end * (1.6 + step * 1.65),
+            this.scene,
+          );
+        const panel = this.makeBanner(
+          end < 0 ? 'QATAR AIRWAYS   •   Red Bull' : 'Wilson   •   MONDO',
+          6.5,
+          0.55,
+          '#0a1521',
+          '#b8c8c9',
+          43,
+        );
+        panel.position.set(x, 0.45, end * 4.9);
+        panel.rotation.y = x > 0 ? -Math.PI / 2 : Math.PI / 2;
+        this.scene.add(panel);
+      }
     }
     this.backdropMaterial = this.material(0x070e16, 0.8);
     this.box(34, 8, 0.4, this.backdropMaterial, 0, 3.9, -23, this.scene);
@@ -1355,7 +1367,7 @@ export class PadelRenderer {
       'PREMIER PADEL',
       6.0,
       0.8,
-      '#192a38',
+      '#242629',
       '#a6b8bf',
       70,
     );
@@ -2380,6 +2392,33 @@ export class PadelRenderer {
     }
     faceSurface.geometry.computeVertexNormals();
     this.buildFaceFeatures(profile, head, skin, darkSkin, hair);
+    const expressionMouth =
+      profile.id === 'navarro' ? new THREE.Group() : undefined;
+    if (expressionMouth) {
+      expressionMouth.position.set(0, -0.074, -0.108);
+      this.sphere(
+        0.027,
+        0.02,
+        0.005,
+        this.material(0x321914),
+        expressionMouth,
+        0,
+        0,
+        0,
+      );
+      this.box(
+        0.036,
+        0.004,
+        0.002,
+        this.material(0xe4dace),
+        0,
+        0.011,
+        -0.005,
+        expressionMouth,
+      );
+      expressionMouth.visible = false;
+      head.add(expressionMouth);
+    }
     const crownHeight = profile.hairStyle === 'crop' ? 0.184 : 0.201;
     this.anatomicalSurface(
       [
@@ -2756,6 +2795,7 @@ export class PadelRenderer {
       bottle,
       skirt,
       hairTail,
+      expressionMouth,
     };
   }
 
@@ -3212,6 +3252,7 @@ export class PadelRenderer {
       const rig = this.rigs[i];
       // A skipped bench can resume directly; props must not survive that transition.
       rig.bottle.visible = false;
+      if (rig.expressionMouth) rig.expressionMouth.visible = false;
       const hitArm = rig.dominantArm,
         hitElbow = rig.dominantElbow;
       const offArm = rig.hand === 1 ? rig.leftArm : rig.rightArm;
@@ -3285,6 +3326,20 @@ export class PadelRenderer {
       const preparedShot =
         action.preparedShot ??
         (previewing && this.charge.smash ? 'remate' : undefined);
+      const preparingVibora = preparedShot === 'vibora';
+      const viboraContactHeight = (player.height ?? rig.profile.height) + 0.42;
+      const contactArrival =
+        state.ball.vy < -0.15
+          ? Math.max(0, (state.ball.y - viboraContactHeight) / -state.ball.vy)
+          : 1;
+      const viboraAnticipation =
+        preparingVibora && ballDistance < 1.65
+          ? clamp(1 - contactArrival / 0.14, 0, 1)
+          : 0;
+      const viboraMotion =
+        hasContact && contactShot === 'vibora'
+          ? viboraFollowThrough(age, rig.hand)
+          : null;
       const loadingSmash = preparedShot
         ? preparedShot === 'remate'
         : previewing
@@ -3424,6 +3479,14 @@ export class PadelRenderer {
         rig.chest.rotation.y =
           rig.hand * THREE.MathUtils.lerp(-0.3, 0.55, follow) * recover;
       }
+      if (viboraMotion) {
+        rig.body.rotation.set(
+          viboraMotion.bodyPitch,
+          viboraMotion.bodyYaw,
+          viboraMotion.bodyRoll,
+        );
+        rig.chest.rotation.y = viboraMotion.chestYaw;
+      }
       const shortStep = defendingWall ? 0.68 : 1;
       rig.leftLeg.rotation.set(
         step * 0.6 * shortStep + 0.07 + crouch * 3.0,
@@ -3528,11 +3591,25 @@ export class PadelRenderer {
         offElbow.rotation.x = 0.85;
       }
       if (!hasContact && highPreparation > 0.12 && !serving) {
-        this.prepareOverhead(rig, 1, loadingSmash, preparedShot ?? 'bandeja');
+        this.prepareOverhead(
+          rig,
+          1,
+          loadingSmash,
+          preparedShot ?? 'bandeja',
+          viboraAnticipation,
+        );
       } else if (!hasContact && preparation > 0.3 && !serving) {
         this.prepareGround(rig, Math.abs(player.z) < 4, state.ball.y < 0.85);
       }
-      if (hasContact && ['bandeja', 'vibora'].includes(contactShot)) {
+      if (viboraMotion) {
+        this.poseArm(
+          rig,
+          false,
+          new THREE.Vector3(...viboraMotion.freeElbow),
+          new THREE.Vector3(...viboraMotion.freeWrist),
+          1,
+        );
+      } else if (hasContact && contactShot === 'bandeja') {
         const release = THREE.MathUtils.smoothstep(age, 0, 0.22);
         this.poseArm(
           rig,
@@ -3588,21 +3665,24 @@ export class PadelRenderer {
                   : 1.28;
           rig.root.updateMatrixWorld(true);
           const finish = rig.root.localToWorld(
-            new THREE.Vector3(rig.hand * across, endingHeight, -0.3),
+            viboraMotion
+              ? new THREE.Vector3(...viboraMotion.finishRoot)
+              : new THREE.Vector3(rig.hand * across, endingHeight, -0.3),
           );
           this.armTarget.lerp(
             finish,
-            THREE.MathUtils.smoothstep(
-              age,
-              0.025,
-              contactShot === 'vibora' ? 0.25 : 0.32,
-            ),
+            viboraMotion?.finishBlend ??
+              THREE.MathUtils.smoothstep(
+                age,
+                0.025,
+                contactShot === 'vibora' ? 0.25 : 0.32,
+              ),
           );
         }
         const ikWeight = 1 - THREE.MathUtils.smoothstep(age, 0.42, 0.57);
         const faceDirection = outgoing.clone();
         if (contactShot === 'bandeja') faceDirection.y = 0.52;
-        else if (contactShot === 'vibora') faceDirection.y = 0.1;
+        else if (viboraMotion) faceDirection.y = viboraMotion.faceLift;
         else if (['volea', 'dejada'].includes(contactShot))
           faceDirection.y = 0.19;
         this.anchorRacket(
@@ -3612,6 +3692,7 @@ export class PadelRenderer {
           faceDirection,
           contactShot,
         );
+        if (viboraMotion) rig.racket.rotateY(viboraMotion.pronation);
         // Forearm pronation appears after contact; it cannot rotate the ball trajectory.
         if (smash)
           rig.racket.rotateY(
@@ -3867,7 +3948,7 @@ export class PadelRenderer {
   }
 
   private presentationLane(index: number) {
-    return 0.78 + Math.floor(index / 2) * 1.25 + (index % 2) * 0.53;
+    return Math.floor(index / 2) === 0 ? 0.6 : 1.15;
   }
 
   private celebrationPosition(index: number, progress: number): THREE.Vector3 {
@@ -3886,8 +3967,11 @@ export class PadelRenderer {
     return start;
   }
 
-  private routeToBench(index: number): THREE.Vector3[] {
-    const start = this.celebrationPosition(index, 1);
+  private routeToBench(
+    index: number,
+    startOverride?: THREE.Vector3,
+  ): THREE.Vector3[] {
+    const start = startOverride?.clone() ?? this.celebrationPosition(index, 1);
     const team = Math.floor(index / 2),
       end = this.benchEnd(team);
     const side = this.endsSwapped ? -1 : 1;
@@ -3903,16 +3987,26 @@ export class PadelRenderer {
       route.push(new THREE.Vector3(side * (COURT.halfWidth - 0.55), 0, doorZ));
       route.push(new THREE.Vector3(outsideX, 0, doorZ));
     } else if (Math.sign(start.x) === side) {
+      if (Math.abs(start.x) > 6.3) {
+        // Leave the furniture side through the central aisle before taking
+        // the walking lane between the glass and the umpire's high chair.
+        const centralZ = Math.sign(start.z || 1) * 1.3;
+        route.push(new THREE.Vector3(start.x, 0, centralZ));
+        route.push(new THREE.Vector3(outsideX, 0, centralZ));
+      }
       route.push(new THREE.Vector3(outsideX, 0, start.z));
     } else {
       // A player finishing outside the opposite wall walks around an end,
       // never through either glass wall to reach the common bench side.
       const aroundEnd = Math.sign(start.z || 1) * (COURT.halfLength + 1.35);
-      route.push(new THREE.Vector3(start.x, 0, aroundEnd));
+      const farLane = -side * (COURT.halfWidth + 0.7);
+      route.push(new THREE.Vector3(farLane, 0, start.z));
+      route.push(new THREE.Vector3(farLane, 0, aroundEnd));
       route.push(new THREE.Vector3(outsideX, 0, aroundEnd));
     }
-    route.push(new THREE.Vector3(outsideX, 0, end * this.benchZ));
-    route.push(this.benchPosition(end, index % 2 ? 0.72 : -0.72));
+    const seat = this.benchPosition(end, index % 2 ? 0.72 : -0.72);
+    route.push(new THREE.Vector3(outsideX, 0, seat.z));
+    route.push(seat);
     return route;
   }
 
@@ -3963,6 +4057,7 @@ export class PadelRenderer {
     rig.racket.rotation.set(Math.PI + 0.12, 0, -rig.hand * 0.06);
     rig.ring.visible = false;
     rig.bottle.visible = false;
+    if (rig.expressionMouth) rig.expressionMouth.visible = false;
     rig.feetReady = false;
   }
 
@@ -4435,7 +4530,16 @@ export class PadelRenderer {
         const beat = Math.sin(
           clamp((p.progress - 0.12) / 0.75, 0, 1) * Math.PI,
         );
-        if (winner) {
+        if (
+          winner &&
+          p.celebrationStyle === 'paquito-guitar' &&
+          p.celebrationPlayerId === i &&
+          rig.profile.id === 'navarro'
+        ) {
+          // Turn toward the baseline crowd so the net never masks the kneeling gesture.
+          rig.root.rotation.y = team === 0 ? Math.PI : 0;
+          this.paquitoCelebration(rig, p.progress);
+        } else if (winner) {
           const mate = this.celebrationPosition(i ^ 1, p.progress);
           const close = mate.distanceTo(rig.root.position) < 1.8;
           if (close)
@@ -4476,42 +4580,92 @@ export class PadelRenderer {
           );
         }
       } else if (p.phase === 'walk') {
-        this.walkPresentation(rig, this.presentationRoutes[i], p.progress);
+        const delay = (i % 2) * 0.065;
+        this.walkPresentation(
+          rig,
+          this.presentationRoutes[i],
+          clamp((p.progress - delay) / (1 - delay), 0, 1),
+        );
       } else if (p.phase === 'bench') {
         rig.root.position.copy(this.presentationRoutes[i].at(-1)!);
         this.sitOnBench(rig, end, p.frustration[team], i, p.progress);
       } else {
-        const source = this.presentationRoutes[i];
-        const route = source
-          .slice()
-          .reverse()
-          .map((point) => point.clone());
         const target = this.presentationStarts[i].clone();
         if (p.changeEnds) target.multiplyScalar(-1);
-        const side = Math.sign(source[2]?.x ?? target.x) || 1;
-        const doorZ = this.doorwayZ(i, end);
-        const exit = new THREE.Vector3(
-          side * (COURT.halfWidth + this.presentationLane(i)),
-          0,
-          end * this.benchZ,
+        const returning = this.routeToBench(i, target).reverse();
+        const delay = (i % 2) * 0.065;
+        this.walkPresentation(
+          rig,
+          returning,
+          clamp((p.progress - delay) / (1 - delay), 0, 1),
         );
-        const returning = [
-          route[0],
-          exit,
-          new THREE.Vector3(
-            side * (COURT.halfWidth + this.presentationLane(i)),
-            0,
-            doorZ,
-          ),
-          new THREE.Vector3(side * (COURT.halfWidth - 0.55), 0, doorZ),
-          target,
-        ];
-        this.walkPresentation(rig, returning, p.progress);
       }
       rig.shadow.position.set(rig.root.position.x, 0.033, rig.root.position.z);
       rig.shadow.scale.set(1, 1, 1);
       (rig.shadow.material as THREE.MeshBasicMaterial).opacity = 0.6;
     }
+  }
+
+  private paquitoCelebration(rig: Rig, progress: number) {
+    const pose = paquitoGuitarPose(progress);
+    rig.body.position.y = pose.bodyHeight;
+    rig.body.rotation.set(pose.bodyPitch, pose.bodyYaw, 0);
+    rig.chest.rotation.y = pose.chestYaw;
+    rig.head.rotation.set(pose.headPitch, pose.headYaw, 0);
+    rig.root.updateMatrixWorld(true);
+    for (const side of [-1, 1]) {
+      const landmark = side < 0 ? pose.leftAnkleRoot : pose.rightAnkleRoot;
+      const foot = rig.root.localToWorld(new THREE.Vector3(...landmark));
+      this.solveLeg(rig, side, foot);
+    }
+    this.poseArm(
+      rig,
+      true,
+      new THREE.Vector3(...pose.dominantElbow),
+      new THREE.Vector3(...pose.dominantWrist),
+      pose.active,
+    );
+    this.poseArm(
+      rig,
+      false,
+      new THREE.Vector3(...pose.freeElbow),
+      new THREE.Vector3(...pose.freeWrist),
+      pose.active,
+    );
+    this.orientRacketInUpper(
+      rig,
+      new THREE.Vector3(...pose.racketUp),
+      new THREE.Vector3(...pose.racketNormal),
+      pose.active,
+    );
+    if (rig.expressionMouth) {
+      rig.expressionMouth.visible = pose.mouthOpen > 0.08;
+      rig.expressionMouth.scale.y = pose.mouthOpen;
+    }
+  }
+
+  /** Orient the racket in its shoulder frame, independent of forearm bending. */
+  private orientRacketInUpper(
+    rig: Rig,
+    up: THREE.Vector3,
+    facing: THREE.Vector3,
+    weight = 1,
+  ) {
+    const yAxis = up.clone().normalize();
+    const normal = facing.clone().addScaledVector(yAxis, -facing.dot(yAxis));
+    if (normal.lengthSq() < 0.001)
+      normal.set(0, 0, 1).addScaledVector(yAxis, -yAxis.z);
+    normal.normalize();
+    const xAxis = new THREE.Vector3().crossVectors(yAxis, normal).normalize();
+    normal.crossVectors(xAxis, yAxis).normalize();
+    const desired = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(xAxis, yAxis, normal),
+    );
+    const chain = rig.dominantArm.quaternion
+      .clone()
+      .multiply(rig.dominantElbow.quaternion)
+      .invert();
+    rig.racket.quaternion.slerp(chain.multiply(desired), weight);
   }
 
   private poseArm(
@@ -4552,7 +4706,35 @@ export class PadelRenderer {
     weight: number,
     smash: boolean,
     shot = 'bandeja',
+    anticipation = 0,
   ) {
+    if (shot === 'vibora' && !smash) {
+      const motion = viboraPreparation(weight, rig.hand, anticipation);
+      rig.body.rotation.set(motion.bodyPitch, motion.bodyYaw, motion.bodyRoll);
+      rig.chest.rotation.y = motion.chestYaw;
+      rig.head.rotation.x = motion.headPitch;
+      this.poseArm(
+        rig,
+        true,
+        new THREE.Vector3(...motion.dominantElbow),
+        new THREE.Vector3(...motion.dominantWrist),
+        weight,
+      );
+      this.poseArm(
+        rig,
+        false,
+        new THREE.Vector3(...motion.freeElbow),
+        new THREE.Vector3(...motion.freeWrist),
+        weight,
+      );
+      this.orientRacketInUpper(
+        rig,
+        new THREE.Vector3(...motion.racketUp),
+        new THREE.Vector3(0, 0, -1),
+        weight,
+      );
+      return;
+    }
     // Landmarks from the supplied four-frame sequence: loaded elbow behind the shoulder,
     // forearm flexed, off hand pointing upward, racket drop behind the head for a smash.
     this.poseArm(
@@ -5109,6 +5291,29 @@ export class PadelRenderer {
           this.desiredCamera.lerp(wide, reaction);
           this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, 47, reaction);
         }
+      } else if (
+        p.phase === 'celebration' &&
+        p.celebrationStyle === 'paquito-guitar' &&
+        p.celebrationPlayerId !== undefined
+      ) {
+        const focus = this.rigs[p.celebrationPlayerId];
+        const facing = new THREE.Vector3(0, 0, -1).applyAxisAngle(
+          new THREE.Vector3(0, 1, 0),
+          focus.root.rotation.y,
+        );
+        const lateral = new THREE.Vector3(1, 0, 0).applyAxisAngle(
+          new THREE.Vector3(0, 1, 0),
+          focus.root.rotation.y,
+        );
+        this.desiredTarget
+          .copy(focus.root.position)
+          .add(new THREE.Vector3(0, 0.85, 0));
+        this.desiredCamera
+          .copy(this.desiredTarget)
+          .addScaledVector(facing, 4.25)
+          .addScaledVector(lateral, 0.8);
+        this.desiredCamera.y = 1.75;
+        this.camera.fov = narrow ? 60 : 43;
       } else if (p.phase === 'bench') {
         const flip = this.endsSwapped ? -1 : 1;
         this.desiredTarget.set(
@@ -5117,11 +5322,11 @@ export class PadelRenderer {
           end * this.benchZ + flip * 0.3,
         );
         this.desiredCamera.set(
-          (this.benchX - 4.6) * flip,
-          2.3,
-          end * this.benchZ - flip * 2.8,
+          5.45 * flip,
+          2.2,
+          end * this.benchZ - flip * 3.7,
         );
-        this.camera.fov = narrow ? 57 : 43;
+        this.camera.fov = narrow ? 57 : 47;
       } else if (p.phase === 'celebration') {
         const focus = p.winnerTeam ?? team;
         const first = this.rigs[focus * 2].root.position;

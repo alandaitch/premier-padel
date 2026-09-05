@@ -46,6 +46,7 @@ import {
   type PresentationState,
 } from '@/game/match-presentation';
 import { PadelAudio } from '@/game/audio';
+import { PresentationAudioScheduler } from '@/game/presentation-audio';
 import { VENUES, SHOTS } from '@/game/catalog';
 import { familyShot } from '@/game/controls';
 import { VictoryCombo, VICTORY_SEQUENCE } from '@/game/victory-combo';
@@ -486,6 +487,7 @@ export default function PadelGame() {
     let accumulator = 0;
     let publish = 0;
     let lastEvent = -1;
+    const presentationAudio = new PresentationAudioScheduler();
     let lastMeshImpact = 0;
     let meshMatch: PadelMatch | null = null;
     let lastPerfectContact = -1;
@@ -830,6 +832,7 @@ export default function PadelGame() {
       if (m !== meshMatch) {
         meshMatch = m;
         lastMeshImpact = 0;
+        presentationAudio.reset();
       }
       const active =
         screenRef.current === 'play' || screenRef.current === 'menu';
@@ -927,6 +930,13 @@ export default function PadelGame() {
         smash: true,
       });
       renderer.current!.render(s, dt);
+      for (const cue of presentationAudio.update({
+        presentation: scene.current,
+        contact: s.contactPoint,
+        enabled: active,
+        paused: !active,
+      }))
+        audio.current?.playPresentationCue(cue);
       if (
         s.contactPoint?.quality === 'perfect' &&
         s.contactPoint.time !== lastPerfectContact
@@ -1363,7 +1373,7 @@ export default function PadelGame() {
             </a>
             <div className="edition">
               <span className="status-dot" />
-              EDICIÓN JUGABLE<span className="edition-sep">/</span>09
+              EDICIÓN JUGABLE<span className="edition-sep">/</span>10
             </div>
             <button
               className="icon-button"

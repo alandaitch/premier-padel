@@ -1,3 +1,11 @@
+import {
+  constrainArenaMotion,
+  firstArenaObstacleHit,
+  findArenaPath,
+  type ArenaPoint,
+  type ArenaSpatialPoint,
+} from './arena-layout';
+
 /**
  * Premier Padel simulation. Metres / seconds, positive Z is the home pair.
  * The camera keeps the home team near the viewer after changes of ends.
@@ -344,6 +352,9 @@ export interface GameState {
   };
 }
 export interface PointOutcome {
+  /** Snapshot only for a winning stroke, never an opponent error. */
+  winningPlayerId?: number;
+  winningShot?: Shot;
   id: number;
   winner: Team;
   game: boolean;
@@ -1254,10 +1265,10 @@ export class PadelMatch {
       return;
     }
     this.requestedWall = !!input.waitWall;
-    const oldZ = s.ball.z;
+    const oldBall = { x: s.ball.x, y: s.ball.y, z: s.ball.z };
     integrateBall(s.ball, dt);
 
-    this.collisions(oldZ);
+    this.collisions(oldBall.z, oldBall);
     if (s.phase !== 'rally') {
       this.hitWasDown = input.hit;
       return;
@@ -2131,7 +2142,24 @@ export class PadelMatch {
       power: clamp(speed / 18, 0.12, 1),
     };
   }
-  private collisions(oldZ: number) {
+  private hitArenaObstacle(oldBall?: ArenaSpatialPoint) {
+    const s = this.state;
+    if (!oldBall || !s.ballOutside) return false;
+    const hit = firstArenaObstacleHit(oldBall, s.ball, R);
+    if (!hit) return false;
+    Object.assign(s.ball, hit.point, { vx: 0, vy: 0, vz: 0 });
+    const label =
+      hit.obstacle.kind === 'bench'
+        ? 'el banco'
+        : hit.obstacle.kind === 'umpire-chair'
+          ? 'la silla del árbitro'
+          : hit.obstacle.kind === 'railing'
+            ? 'la baranda'
+            : 'la grada';
+    this.outOfCourt(`La pelota tocó ${label}`);
+    return true;
+  }
+  private collisions(oldZ: number, oldBall?: ArenaSpatialPoint) {
     const s = this.state,
       b = s.ball;
     const crossedNet = oldZ * b.z < 0 && Math.abs(b.x) <= 5 + R;
@@ -2221,6 +2249,7 @@ export class PadelMatch {
       this.recordBounce('suelo');
       this.emit('bounce');
     }
+    if (this.hitArenaObstacle(oldBall)) return;
     if (!s.ballOutside && Math.abs(b.x) + R > 5 && b.x * b.vx > 0) {
       const wallHeight = Math.abs(b.z) > 8 ? 4 : 3;
       if (b.y - R > wallHeight || this.inDoor(b.z, b.y, R)) {
@@ -2299,6 +2328,7 @@ export class PadelMatch {
         return;
       }
     }
+    if (this.hitArenaObstacle(oldBall)) return;
     if (!s.ballOutside && Math.abs(b.z) + R > 10 && b.z * b.vz > 0) {
       if (b.y - R > 4) {
         this.outOfCourt('Remate por 4');
@@ -2403,6 +2433,10 @@ export class PadelMatch {
         (wasTieBreak && !result.game && tiePoints % 6 === 0));
     this.pendingEndsChange = changeEnds;
     s.lastPoint = {
+      winningPlayerId:
+        isWinner && this.lastHitter === winner ? this.lastHitterId : undefined,
+      winningShot:
+        isWinner && this.lastHitter === winner ? s.lastShot : undefined,
       id: s.stats.totalPoints,
       winner,
       ...result,
@@ -2461,22 +2495,45 @@ export class PadelMatch {
       Math.abs(point.z) <= COURT.exteriorHalfLength
     );
   }
+  private arenaRoute(from: { x: number; z: number }, target: ArenaPoint) {
+    const route = findArenaPath(from, target, COURT.playerRadius);
+    return {
+      waypoint: route.points[1] ?? route.target,
+      length: route.length,
+    };
+  }
   private routePlayer(p: Player, target: { x: number; z: number }) {
     const targetOutside = Math.abs(target.x) > 5;
     const ownOutside = Math.abs(p.x) > 5;
     if (!targetOutside && !ownOutside)
       return { waypoint: target, length: distance(p, target) };
     if (targetOutside && ownOutside && p.x * target.x > 0) {
-      const waypoint =
-        Math.abs(p.x) < 5.35
-          ? {
-              x: Math.sign(p.x) * 5.45,
-              z: (signFor(p.team) * (COURT.doorMinZ + COURT.doorMaxZ)) / 2,
-            }
-          : target;
+      if (Math.abs(p.x) >= 5.35) return this.arenaRoute(p, target);
+      const waypoint = {
+        x: Math.sign(p.x) * 5.45,
+        z: (signFor(p.team) * (COURT.doorMinZ + COURT.doorMaxZ)) / 2,
+      };
       return {
         waypoint,
         length: distance(p, waypoint) + distance(waypoint, target),
+      };
+    }
+    if (targetOutside && ownOutside) {
+      const currentSide = Math.sign(p.x) || 1,
+        gateZ = (signFor(p.team) * (COURT.doorMinZ + COURT.doorMaxZ)) / 2,
+        outer = { x: currentSide * 5.45, z: gateZ },
+        inner = { x: currentSide * 4.55, z: gateZ };
+      if (Math.abs(p.z - gateZ) > 0.12) {
+        const route = this.arenaRoute(p, outer);
+        return {
+          waypoint: route.waypoint,
+          length:
+            route.length + distance(outer, inner) + distance(inner, target),
+        };
+      }
+      return {
+        waypoint: inner,
+        length: distance(p, inner) + distance(inner, target),
       };
     }
     const side = Math.sign(targetOutside ? target.x : p.x) || 1;
@@ -2492,8 +2549,14 @@ export class PadelMatch {
           distance(p, inner) + distance(inner, outer) + distance(outer, target),
       };
     }
-    const waypoint =
-      Math.abs(p.x) > 5.35 && Math.abs(p.z - z) > 0.12 ? outer : inner;
+    if (Math.abs(p.x) > 5.35 && Math.abs(p.z - z) > 0.12) {
+      const route = this.arenaRoute(p, outer);
+      return {
+        waypoint: route.waypoint,
+        length: route.length + distance(outer, inner) + distance(inner, target),
+      };
+    }
+    const waypoint = inner;
     return {
       waypoint,
       length:
@@ -2543,6 +2606,19 @@ export class PadelMatch {
       p.z =
         sign *
         clamp(p.z * sign, COURT.doorMinZ + radius, COURT.doorMaxZ - radius);
+    }
+    const usesExteriorArena =
+      Math.abs(oldX) >= 5 + radius - 1e-8 || Math.abs(p.x) >= 5 + radius - 1e-8;
+    if (usesExteriorArena) {
+      const arena = constrainArenaMotion(
+        { x: oldX, z: oldZ },
+        { x: p.x, z: p.z },
+        radius,
+      );
+      p.x = arena.point.x;
+      p.z = arena.point.z;
+      if (arena.blockedX) p.vx = 0;
+      if (arena.blockedZ) p.vz = 0;
     }
     if (Math.abs(p.z - oldZ) < 1e-8) p.vz = 0;
     p.outside = Math.abs(p.x) > 5;
